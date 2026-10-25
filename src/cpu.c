@@ -69,6 +69,7 @@
 #include "pokey.h"
 #include "memory.h"
 #include "monitor.h"
+#include "sio.h"
 #ifndef BASIC
 #include "statesav.h"
 #ifndef __PLUS
@@ -658,6 +659,10 @@ void CPU_GO(int limit)
 			}
 		}
 #endif /* PC_PTR */
+#ifndef ASAP
+		if (SIO_trace_enabled && GET_PC() == 0xe459)
+			SIO_TraceRequest();
+#endif
 
 #ifdef MONITOR_TRACE
 		if (MONITOR_trace_file != NULL) {

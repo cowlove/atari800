@@ -185,6 +185,8 @@ int Atari800_turbo = FALSE;
 int Atari800_turbo_speed = 0; /* percentage speed or 0 for max turbo */
 int Atari800_start_in_monitor = FALSE;
 int Atari800_auto_frameskip = FALSE;
+static int Atari800_screen_dump_after = 0;
+static int screen_dump_start_frame = -1;
 
 #ifdef BENCHMARK
 static double benchmark_start_time;
@@ -196,6 +198,7 @@ static char dl_dir[FILENAME_MAX] = "";
 
 #ifdef CTRL_C_HANDLER
 volatile sig_atomic_t sigint_flag = FALSE;
+static int Atari800_exit_on_ctrl_c = FALSE;
 
 static void sigint_handler(int num)
 {
@@ -615,6 +618,8 @@ int Atari800_Initialise(int *argc, char *argv[])
 			Atari800_disable_basic = TRUE;
 		else if (strcmp(argv[i], "-basic") == 0)
 			Atari800_disable_basic = FALSE;
+		else if (strcmp(argv[i], "-exit-on-ctrl-c") == 0)
+			Atari800_exit_on_ctrl_c = TRUE;
 		else if (strcmp(argv[i], "-nopatch") == 0)
 			ESC_enable_sio_patch = FALSE;
 		else if (strcmp(argv[i], "-nopatchall") == 0)
@@ -751,6 +756,17 @@ int Atari800_Initialise(int *argc, char *argv[])
 				else
 					a_m = TRUE;
 			}
+			else if (strcmp(argv[i], "-dump-screen-after") == 0) {
+				if (i_a) {
+					Atari800_screen_dump_after = Util_sscandec(argv[++i]);
+					if (Atari800_screen_dump_after < 1) {
+						Log_print("Invalid screen dump delay; expected positive seconds");
+						return FALSE;
+					}
+				}
+				else
+					a_m = TRUE;
+			}
 			else if (strcmp(argv[i], "-autosave-config") == 0)
 				CFG_save_on_exit = TRUE;
 			else if (strcmp(argv[i], "-no-autosave-config") == 0)
@@ -811,8 +827,13 @@ int Atari800_Initialise(int *argc, char *argv[])
 #ifndef BASIC
 					Log_print("\t-state <file>    Load saved-state file");
 					Log_print("\t-refresh <rate>  Specify screen refresh rate");
+					Log_print("\t-dump-screen-after <seconds>");
+					Log_print("\t                 Dump 24x40 Graphics 0 screen after emulated seconds, then exit");
 #endif
 					Log_print("\t-nopatch         Don't patch SIO routine in OS");
+					Log_print("\t-exit-on-ctrl-c  Exit emulator instead of entering monitor on Ctrl+C");
+					Log_print("\t-sio-trace <file> Log each SIOV request's DCB to a file");
+					Log_print("\t-pbi-sio-disk <file> Attach a raw 512-byte-sector image as PBI SIO device $A0");
 					Log_print("\t-nopatchall      Don't patch OS at all, H: device won't work");
 					Log_print("\t-c               Enable RAM between 0xc000 and 0xcfff in Atari 800");
 					Log_print("\t-axlon <n>       Use Atari 800 Axlon memory expansion: <n> k total RAM");
@@ -1444,14 +1465,22 @@ static void basic_frame(void)
 
 void Atari800_Frame(void)
 {
+	if (Atari800_screen_dump_after > 0 && screen_dump_start_frame < 0)
+		screen_dump_start_frame = Atari800_nframes;
 #ifndef BASIC
 	static int refresh_counter = 0;
 
 #ifdef CTRL_C_HANDLER
 	if (sigint_flag) {
 		sigint_flag = FALSE;
-		INPUT_key_code = AKEY_UI;
-		UI_alt_function = UI_MENU_MONITOR;
+		if (Atari800_exit_on_ctrl_c) {
+			Atari800_Exit(FALSE);
+			exit(0);
+		}
+		else {
+			INPUT_key_code = AKEY_UI;
+			UI_alt_function = UI_MENU_MONITOR;
+		}
 	}
 #endif /* CTRL_C_HANDLER */
 
@@ -1554,6 +1583,29 @@ void Atari800_Frame(void)
 	Screen_DrawMultimediaStats();
 #endif
 	Atari800_nframes++;
+#ifndef LIBATARI800
+	if (Atari800_screen_dump_after > 0 &&
+	    Atari800_nframes - screen_dump_start_frame >=
+	    Atari800_screen_dump_after *
+	    (Atari800_tv_mode == Atari800_TV_PAL ? Atari800_FPS_PAL : Atari800_FPS_NTSC)) {
+		UWORD screen_addr = (UWORD) MEMORY_dGetByte(0x58) |
+		                    ((UWORD) MEMORY_dGetByte(0x59) << 8); /* SAVMSC */
+		int i;
+		printf("Graphics 0 screen at $%04X (frame %d, %s):\n", screen_addr,
+		       Atari800_nframes - screen_dump_start_frame,
+		       Atari800_tv_mode == Atari800_TV_PAL ? "PAL" : "NTSC");
+		for (i = 0; i < 24 * 40; i++) {
+			UBYTE ch = MEMORY_dGetByte((UWORD) (screen_addr + i)) & 0x7f;
+			ch = (UBYTE) (ch < 64 ? ch + 32 : ch < 96 ? ch - 64 : ch);
+			putchar(ch < 32 || ch > 126 ? ' ' : ch);
+			if (i % 40 == 39)
+				putchar('\n');
+		}
+		fflush(stdout);
+		Atari800_ErrExit();
+		exit(0);
+	}
+#endif /* LIBATARI800 */
 #ifndef LIBATARI800
 #ifdef BENCHMARK
 	if (Atari800_nframes >= BENCHMARK) {

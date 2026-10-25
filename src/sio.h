@@ -32,6 +32,9 @@ void SIO_Dismount(int diskno);
 void SIO_DisableDrive(int diskno);
 int SIO_RotateDisks(void);
 void SIO_Handler(void);
+extern int SIO_trace_enabled;
+void SIO_TraceRequest(void);
+void SIO_TraceComplete(void);
 
 UBYTE SIO_ChkSum(const UBYTE *buffer, int length);
 void SIO_SwitchCommandFrame(int onoff);

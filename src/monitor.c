@@ -96,6 +96,7 @@ void monitor_printf(const char *format, ...)
 
 UBYTE *trainer_memory = NULL;
 UBYTE *trainer_flags = NULL;
+static int monitor_input_eof = FALSE;
 
 #ifdef MONITOR_TRACE
 FILE *MONITOR_trace_file = NULL;
@@ -717,11 +718,17 @@ static void safe_gets(char *buffer, size_t size, char const *prompt)
 				add_history(got);
 			free(got); /* Need to free buffer allocated by readline() */
 		}
+		else {
+			monitor_input_eof = TRUE;
+			buffer[0] = '\0';
+		}
 	}
 #else
 	fputs(prompt, stdout);
-	if (fgets(buffer, size, stdin) == NULL)
+	if (fgets(buffer, size, stdin) == NULL) {
+		monitor_input_eof = TRUE;
 		buffer[0] = 0;
+	}
 #endif
 	Util_chomp(buffer);
 }
@@ -3776,6 +3783,7 @@ void MONITOR_BPC(char *arg)
 int MONITOR_Run(void)
 {
 	UWORD addr;
+	monitor_input_eof = FALSE;
 
 #ifdef __PLUS
 	if (!Misc_AllocMonitorConsole(&mon_output, &mon_input))
@@ -3819,6 +3827,10 @@ int MONITOR_Run(void)
 		char *t;
 
 		safe_gets(s, sizeof(s), "> ");
+		if (monitor_input_eof) {
+			PLUS_EXIT_MONITOR;
+			return FALSE;
+		}
 		if (s[0] != '\0')
 			strcpy(old_s, s);
 		else {

@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 
 #include "afile.h"
 #include "antic.h"  /* ANTIC_ypos */
@@ -80,6 +81,16 @@ extern void (*disk_activity_callback)(int drive, int operation);
 #endif
 
 static FILE *disk[SIO_MAX_DRIVES] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+static FILE *pbi_sio_disk = NULL;
+static uint32_t pbi_sio_sector_count = 0;
+#define PBI_SIO_SECTOR_SIZE 512
+typedef struct {
+	int mounted;
+	uint16_t partition_id;
+	uint32_t start_sector;
+	uint32_t sector_count;
+} pbi_sio_mounted_drive_t;
+static pbi_sio_mounted_drive_t pbi_sio_mounted_drives[8];
 static int sectorcount[SIO_MAX_DRIVES];
 static int sectorsize[SIO_MAX_DRIVES];
 /* these two are used by the 1450XLD parallel disk device */
@@ -188,10 +199,64 @@ int NetSIO_GetByte(void);
 #endif
 
 int ignore_header_writeprotect = FALSE;
+int SIO_trace_enabled = FALSE;
+static FILE *sio_trace_file = NULL;
+static unsigned long sio_trace_request_number = 0;
 
 int SIO_Initialise(int *argc, char *argv[])
 {
-	int i;
+	int i, j;
+	char *pbi_sio_disk_name = NULL;
+	for (i = j = 1; i < *argc; i++) {
+		if (strcmp(argv[i], "-sio-trace") == 0) {
+			if (i + 1 >= *argc) {
+				Log_print("Missing argument for '%s'", argv[i]);
+				return FALSE;
+			}
+			sio_trace_file = fopen(argv[++i], "w");
+			if (sio_trace_file == NULL) {
+				Log_print("Cannot open SIO trace file '%s'", argv[i]);
+				return FALSE;
+			}
+			SIO_trace_enabled = TRUE;
+		}
+		else if (strcmp(argv[i], "-pbi-sio-disk") == 0) {
+			if (i + 1 >= *argc) {
+				Log_print("Missing argument for '%s'", argv[i]);
+				return FALSE;
+			}
+			pbi_sio_disk_name = argv[++i];
+		}
+		else
+			argv[j++] = argv[i];
+	}
+	*argc = j;
+	if (pbi_sio_disk_name != NULL) {
+		if ((pbi_sio_disk = fopen(pbi_sio_disk_name, "r+b")) == NULL) {
+			Log_print("Cannot open PBI SIO disk '%s' for read/write", pbi_sio_disk_name);
+			return FALSE;
+		}
+		if (fseeko(pbi_sio_disk, 0, SEEK_END) != 0) {
+			Log_print("Cannot seek PBI SIO disk '%s'", pbi_sio_disk_name);
+			fclose(pbi_sio_disk);
+			pbi_sio_disk = NULL;
+			return FALSE;
+		}
+		{
+			off_t image_size = ftello(pbi_sio_disk);
+			if (image_size <= 0 || image_size % PBI_SIO_SECTOR_SIZE != 0 ||
+			    (uint64_t)image_size / PBI_SIO_SECTOR_SIZE > UINT32_MAX) {
+				Log_print("PBI SIO disk '%s' must have a positive size in 512-byte sectors", pbi_sio_disk_name);
+				fclose(pbi_sio_disk);
+				pbi_sio_disk = NULL;
+				return FALSE;
+			}
+			pbi_sio_sector_count = (uint32_t)(image_size / PBI_SIO_SECTOR_SIZE);
+		}
+		Log_print("PBI SIO disk '%s': %u sectors of %d bytes", pbi_sio_disk_name,
+		          (unsigned int)pbi_sio_sector_count, PBI_SIO_SECTOR_SIZE);
+	}
+
 	for (i = 0; i < SIO_MAX_DRIVES; i++) {
 		strcpy(SIO_filename[i], "Off");
 		SIO_drive_status[i] = SIO_OFF;
@@ -209,6 +274,82 @@ void SIO_Exit(void)
 	int i;
 	for (i = 1; i <= SIO_MAX_DRIVES; i++)
 		SIO_Dismount(i);
+	if (pbi_sio_disk != NULL) {
+		fclose(pbi_sio_disk);
+		pbi_sio_disk = NULL;
+	}
+	if (sio_trace_file != NULL) {
+		fclose(sio_trace_file);
+		sio_trace_file = NULL;
+	}
+}
+
+static void SIO_TraceDCB(const char *phase, unsigned long request_number)
+{
+	UWORD buffer;
+	int length;
+	int offset;
+	int column;
+	int index;
+	int bytes_on_line;
+	char line[16 * 3 + 1];
+	int line_length;
+	static const char hex[] = "0123456789ABCDEF";
+
+	if (sio_trace_file == NULL)
+		return;
+	buffer = MEMORY_dGetWordAligned(0x0304);
+	length = MEMORY_dGetWordAligned(0x0308);
+	fprintf(sio_trace_file,
+	        "%-5s %05lu DCB=$0300 DEV=$%02X UNIT=$%02X CMD=$%02X DSTATS=$%02X "
+	        "BUFFER=$%04X TIMEOUT=$%02X LENGTH=$%04X AUX=$%02X,$%02X\n",
+	        phase == NULL ? "ENTRY" : phase, request_number,
+	        MEMORY_dGetByte(0x0300), MEMORY_dGetByte(0x0301),
+	        MEMORY_dGetByte(0x0302), MEMORY_dGetByte(0x0303),
+	        buffer, MEMORY_dGetByte(0x0306), length,
+		        MEMORY_dGetByte(0x030a), MEMORY_dGetByte(0x030b));
+	if (MEMORY_dGetByte(0x0300) & 0x80) {
+		fprintf(sio_trace_file, "  XDCB bytes:");
+		for (index = 0; index < 16; index++)
+			fprintf(sio_trace_file, " %02X", MEMORY_dGetByte((UWORD)(0x0300 + index)));
+		fputc('\n', sio_trace_file);
+	}
+	for (offset = 0; offset < length; offset += bytes_on_line) {
+		bytes_on_line = length - offset;
+		if (bytes_on_line > 16)
+			bytes_on_line = 16;
+		line_length = 0;
+		for (column = 0; column < bytes_on_line; column++) {
+			UBYTE value = MEMORY_dGetByte((UWORD)(buffer + offset + column));
+			line[line_length++] = hex[value >> 4];
+			line[line_length++] = hex[value & 0x0f];
+			line[line_length++] = column + 1 == bytes_on_line ? '\0' : ' ';
+		}
+		line[line_length] = '\0';
+		fprintf(sio_trace_file, "  BUFFER+$%04X: %s\n", offset, line);
+	}
+	fflush(sio_trace_file);
+}
+
+void SIO_TraceRequest(void)
+{
+	if (sio_trace_file != NULL)
+		SIO_TraceDCB(NULL, ++sio_trace_request_number);
+}
+
+void SIO_TraceComplete(void)
+{
+	if (sio_trace_file != NULL)
+		SIO_TraceDCB("EXIT", sio_trace_request_number);
+}
+
+static void SIO_TraceImageSector(const char *operation, int unit, int sector, int size)
+{
+	if (sio_trace_file == NULL)
+		return;
+	fprintf(sio_trace_file, "IMAGE %s drive=D%d sector=%d bytes=%d image=\"%s\"\n",
+	        operation, unit + 1, sector, size, SIO_filename[unit]);
+	fflush(sio_trace_file);
 }
 
 int SIO_Mount(int diskno, const char *filename, int b_open_readonly)
@@ -658,6 +799,7 @@ int SIO_ReadSector(int unit, int sector, UBYTE *buffer)
 #endif
 	/* FIXME: what sector size did the user expect? */
 	size = SeekSector(unit, sector);
+	SIO_TraceImageSector("READ", unit, sector, size);
 	if (image_type[unit] == IMAGE_TYPE_PRO) {
 		pro_additional_info_t *info;
 		unsigned char *count;
@@ -878,9 +1020,10 @@ int SIO_WriteSector(int unit, int sector, const UBYTE *buffer)
 		size = SeekSector(unit, sector);
 		if (buffer[1] != 0xff) {
 #endif			
-	} 
+	}
 #endif
 	size = SeekSector(unit, sector);
+	SIO_TraceImageSector("WRITE", unit, sector, size);
 	fwrite(buffer, 1, size, disk[unit]);
 	io_success[unit] = 0;
 	return 'C';
@@ -1110,6 +1253,258 @@ static int delay_counter = 0;
 static int last_ypos = 0;
 #endif
 
+static void pbi_sio_put_word(UBYTE *buffer, int word, unsigned int value)
+{
+	buffer[word * 2] = (UBYTE)value;
+	buffer[word * 2 + 1] = (UBYTE)(value >> 8);
+}
+
+static void pbi_sio_put_ata_string(UBYTE *buffer, int offset, int length, const char *value)
+{
+	int value_length = (int)strlen(value);
+	int i;
+	for (i = 0; i < length; i += 2) {
+		UBYTE first = i < value_length ? (UBYTE)value[i] : ' ';
+		UBYTE second = i + 1 < value_length ? (UBYTE)value[i + 1] : ' ';
+		buffer[offset + i] = second;
+		buffer[offset + i + 1] = first;
+	}
+}
+
+static int pbi_sio_read_sectors(uint32_t sector, UBYTE *buffer, int length)
+{
+	uint64_t offset = (uint64_t)sector * PBI_SIO_SECTOR_SIZE;
+	if (pbi_sio_disk == NULL || length <= 0 || length % PBI_SIO_SECTOR_SIZE != 0 ||
+	    sector >= pbi_sio_sector_count ||
+	    (uint64_t)length / PBI_SIO_SECTOR_SIZE > pbi_sio_sector_count - sector ||
+	    fseeko(pbi_sio_disk, (off_t)offset, SEEK_SET) != 0 ||
+	fread(buffer, 1, length, pbi_sio_disk) != (size_t)length)
+		return FALSE;
+	return TRUE;
+}
+
+static int pbi_sio_write_sectors(uint32_t sector, const UBYTE *buffer, int length)
+{
+	uint64_t offset = (uint64_t)sector * PBI_SIO_SECTOR_SIZE;
+	if (pbi_sio_disk == NULL || length <= 0 || length % PBI_SIO_SECTOR_SIZE != 0 ||
+	    sector >= pbi_sio_sector_count ||
+	    (uint64_t)length / PBI_SIO_SECTOR_SIZE > pbi_sio_sector_count - sector ||
+	    fseeko(pbi_sio_disk, (off_t)offset, SEEK_SET) != 0 ||
+	fwrite(buffer, 1, length, pbi_sio_disk) != (size_t)length || fflush(pbi_sio_disk) != 0)
+		return FALSE;
+	return TRUE;
+}
+
+static int pbi_sio_mount_partition(const UBYTE *mcb)
+{
+	uint32_t partition_id;
+	unsigned int drive_number;
+	unsigned int partition_index;
+	uint32_t start_sector;
+	uint32_t sector_count;
+	unsigned int entry_offset;
+
+	if (mcb[0] != 0x02)
+		return FALSE;
+	drive_number = mcb[1];
+	if (drive_number >= '1' && drive_number <= '8')
+		drive_number -= '0';
+	if (drive_number < 1 || drive_number > 8)
+		return FALSE;
+	partition_id = (uint32_t)mcb[2] |
+		((uint32_t)mcb[3] << 8) |
+		((uint32_t)mcb[4] << 16) |
+		((uint32_t)mcb[5] << 24);
+	if (partition_id < 1 || partition_id > 4)
+		return FALSE;
+	partition_index = partition_id - 1;
+	if (!pbi_sio_read_sectors(0, DataBuffer, PBI_SIO_SECTOR_SIZE) ||
+	    DataBuffer[510] != 0x55 || DataBuffer[511] != 0xaa)
+		return FALSE;
+	entry_offset = 0x1be + partition_index * 16;
+	if (DataBuffer[entry_offset + 4] == 0)
+		return FALSE;
+	start_sector = (uint32_t)DataBuffer[entry_offset + 8] |
+		((uint32_t)DataBuffer[entry_offset + 9] << 8) |
+		((uint32_t)DataBuffer[entry_offset + 10] << 16) |
+		((uint32_t)DataBuffer[entry_offset + 11] << 24);
+	sector_count = (uint32_t)DataBuffer[entry_offset + 12] |
+		((uint32_t)DataBuffer[entry_offset + 13] << 8) |
+		((uint32_t)DataBuffer[entry_offset + 14] << 16) |
+		((uint32_t)DataBuffer[entry_offset + 15] << 24);
+	if (sector_count == 0 || start_sector >= pbi_sio_sector_count ||
+	    sector_count > pbi_sio_sector_count - start_sector)
+		return FALSE;
+	pbi_sio_mounted_drives[drive_number - 1].mounted = TRUE;
+	pbi_sio_mounted_drives[drive_number - 1].partition_id = (uint16_t)partition_id;
+	pbi_sio_mounted_drives[drive_number - 1].start_sector = start_sector;
+	pbi_sio_mounted_drives[drive_number - 1].sector_count = sector_count;
+	return TRUE;
+}
+
+static UBYTE SIO_HandlePBIDisk(UBYTE unit, int command, uint32_t sector,
+				      UWORD address, int length)
+{
+	if (pbi_sio_disk == NULL)
+		return 0;
+	if (unit != 1)
+		return 'N';
+
+	switch (command) {
+	case 0x4e:
+		if (length != 12 || pbi_sio_sector_count > 0xffff)
+			return 'E';
+		memset(DataBuffer, 0, 12);
+		DataBuffer[0] = 1; /* tracks */
+		DataBuffer[1] = 3; /* step rate */
+		DataBuffer[2] = (UBYTE)(pbi_sio_sector_count >> 8);
+		DataBuffer[3] = (UBYTE)pbi_sio_sector_count;
+		DataBuffer[4] = 1; /* sides */
+		DataBuffer[5] = 4; /* MFM */
+		DataBuffer[6] = PBI_SIO_SECTOR_SIZE >> 8;
+		DataBuffer[7] = PBI_SIO_SECTOR_SIZE & 0xff;
+		DataBuffer[8] = 0xff; /* drive online */
+		MEMORY_CopyToMem(DataBuffer, address, 12);
+		return 'C';
+	case 0x6e:
+		if (length != 512)
+			return 'E';
+		memset(DataBuffer, 0, 512);
+		DataBuffer[0] = 1; // bus id
+		DataBuffer[1] = 0; // controller id
+		DataBuffer[2] = 1; // device id
+		DataBuffer[3] = 3; // feature table
+		DataBuffer[6] = PBI_SIO_SECTOR_SIZE & 0xff;
+		DataBuffer[7] = PBI_SIO_SECTOR_SIZE >> 8;
+		DataBuffer[8] = (UBYTE)pbi_sio_sector_count;
+		DataBuffer[9] = (UBYTE)(pbi_sio_sector_count >> 8);
+		DataBuffer[10] = (UBYTE)(pbi_sio_sector_count >> 16);
+		DataBuffer[11] = (UBYTE)(pbi_sio_sector_count >> 24);
+		memcpy(DataBuffer + 0x10, "GENERIC 16M SSD", sizeof("GENERIC 16M SSD"));
+		MEMORY_CopyToMem(DataBuffer, address, 512);
+		return 'C';
+	case 0x4d:
+		if (length != 6)
+			return 'E';
+		MEMORY_CopyFromMem(address, DataBuffer, 6);
+		if (DataBuffer[0] & 0x20) {
+			DataBuffer[0] = 0x01;
+			DataBuffer[1] = 0x00;
+			MEMORY_CopyToMem(DataBuffer, address, 6);
+			return 'C';
+		}
+		return pbi_sio_mount_partition(DataBuffer) ? 'C' : 'E';
+	case 0xec: /* ATA IDENTIFY DEVICE */
+		if (length != 512)
+			return 'E';
+		memset(DataBuffer, 0, 512);
+		pbi_sio_put_word(DataBuffer, 1, 64);
+		pbi_sio_put_word(DataBuffer, 3, 16);
+		pbi_sio_put_word(DataBuffer, 6, 32);
+		pbi_sio_put_ata_string(DataBuffer, 20, 20, "00000000000000000001");
+		pbi_sio_put_ata_string(DataBuffer, 54, 40, "GENERIC 16MB SSD");
+		pbi_sio_put_word(DataBuffer, 49, 0x0200);
+		pbi_sio_put_word(DataBuffer, 53, 1);
+		pbi_sio_put_word(DataBuffer, 54, 64);
+		pbi_sio_put_word(DataBuffer, 55, 16);
+		pbi_sio_put_word(DataBuffer, 56, 32);
+		pbi_sio_put_word(DataBuffer, 57, pbi_sio_sector_count);
+		pbi_sio_put_word(DataBuffer, 58, pbi_sio_sector_count >> 16);
+		pbi_sio_put_word(DataBuffer, 59, 0x0120);
+		pbi_sio_put_word(DataBuffer, 60, (unsigned int)pbi_sio_sector_count);
+		pbi_sio_put_word(DataBuffer, 61, pbi_sio_sector_count >> 16);
+		MEMORY_CopyToMem(DataBuffer, address, 512);
+		return 'C';
+	case 0x53: /* status */
+		if (length != 4)
+			return 'E';
+		DataBuffer[0] = 0x20;
+		DataBuffer[1] = 0xff;
+		DataBuffer[2] = 0xff;
+		DataBuffer[3] = 0xff;
+		MEMORY_CopyToMem(DataBuffer, address, 4);
+		return 'C';
+	case 0x52:
+		if (!pbi_sio_read_sectors(sector, DataBuffer, length))
+			return 'E';
+		MEMORY_CopyToMem(DataBuffer, address, length);
+		return 'C';
+	case 0x50:
+	case 0x57:
+		if (length <= 0 || length > (int)sizeof(DataBuffer) ||
+		    length % PBI_SIO_SECTOR_SIZE != 0)
+			return 'E';
+		MEMORY_CopyFromMem(address, DataBuffer, length);
+		return pbi_sio_write_sectors(sector, DataBuffer, length) ? 'C' : 'E';
+	default:
+		return 'N';
+	}
+}
+
+static UBYTE SIO_HandlePBILogicalDisk(UBYTE drive, int command, uint32_t sector,
+					     UWORD address, int length)
+{
+	pbi_sio_mounted_drive_t *mounted;
+
+	if (drive == 0 || drive > 8 || !pbi_sio_mounted_drives[drive - 1].mounted)
+		return 'N';
+	mounted = &pbi_sio_mounted_drives[drive - 1];
+
+	switch (command) {
+	case 0x4e:
+		if (length != 12 || mounted->sector_count > 0xffff)
+			return 'E';
+		memset(DataBuffer, 0, 12);
+		DataBuffer[0] = 1;
+		DataBuffer[1] = 3;
+		DataBuffer[2] = (UBYTE)(mounted->sector_count >> 8);
+		DataBuffer[3] = (UBYTE)mounted->sector_count;
+		DataBuffer[4] = 1;
+		DataBuffer[5] = 4;
+		DataBuffer[6] = PBI_SIO_SECTOR_SIZE >> 8;
+		DataBuffer[7] = PBI_SIO_SECTOR_SIZE & 0xff;
+		DataBuffer[8] = 0xff;
+		MEMORY_CopyToMem(DataBuffer, address, 12);
+		return 'C';
+	case 0x6e:
+		if (length != 64)
+			return 'E';
+		memset(DataBuffer, 0, 64);
+		DataBuffer[0] = 1;
+		DataBuffer[1] = 0;
+		DataBuffer[2] = 1;
+		DataBuffer[3] = (UBYTE)mounted->partition_id;
+		DataBuffer[6] = PBI_SIO_SECTOR_SIZE & 0xff;
+		DataBuffer[7] = PBI_SIO_SECTOR_SIZE >> 8;
+		DataBuffer[8] = (UBYTE)mounted->sector_count;
+		DataBuffer[9] = (UBYTE)(mounted->sector_count >> 8);
+		DataBuffer[10] = (UBYTE)(mounted->sector_count >> 16);
+		DataBuffer[11] = (UBYTE)(mounted->sector_count >> 24);
+		DataBuffer[12] = (UBYTE)mounted->start_sector;
+		DataBuffer[13] = (UBYTE)(mounted->start_sector >> 8);
+		DataBuffer[14] = (UBYTE)(mounted->start_sector >> 16);
+		DataBuffer[15] = (UBYTE)(mounted->start_sector >> 24);
+		MEMORY_CopyToMem(DataBuffer, address, 64);
+		return 'C';
+	case 0x52:
+		if (sector == 0 || sector - 1 >= mounted->sector_count ||
+		    !pbi_sio_read_sectors(mounted->start_sector + sector - 1, DataBuffer, length))
+			return 'E';
+		MEMORY_CopyToMem(DataBuffer, address, length);
+		return 'C';
+	case 0x50:
+	case 0x57:
+		if (sector == 0 || sector - 1 >= mounted->sector_count || length <= 0 ||
+		    length % PBI_SIO_SECTOR_SIZE != 0 ||
+		    (uint64_t)length / PBI_SIO_SECTOR_SIZE > mounted->sector_count - (sector - 1))
+			return 'E';
+		MEMORY_CopyFromMem(address, DataBuffer, length);
+		return pbi_sio_write_sectors(mounted->start_sector + sector - 1, DataBuffer, length) ? 'C' : 'E';
+	default:
+		return 'N';
+	}
+}
+
 /* SIO patch emulation routine */
 void SIO_Handler(void)
 {
@@ -1143,7 +1538,32 @@ void SIO_Handler(void)
 	/* Disk 1 -> unit = 0 */
 	unit -= 0x31;
 
-	if (MEMORY_dGetByte(0x300) != 0x60 && unit < SIO_MAX_DRIVES && (SIO_drive_status[unit] != SIO_OFF || BINLOAD_start_binloading)) {	/* UBYTE range ! */
+	if ((MEMORY_dGetByte(0x300) == 0xa0 || MEMORY_dGetByte(0x300) == 0xb1) && pbi_sio_disk != NULL) {
+		if (MEMORY_dGetByte(0x30e) != 0 || MEMORY_dGetByte(0x30f) != 0)
+			result = 'E';
+		else if (MEMORY_dGetByte(0x300) == 0xa0)
+			result = SIO_HandlePBIDisk(MEMORY_dGetByte(0x301), cmd,
+				(uint32_t)sector |
+				((uint32_t)MEMORY_dGetByte(0x30c) << 16) |
+				((uint32_t)MEMORY_dGetByte(0x30d) << 24),
+				data, length);
+		else
+			result = SIO_HandlePBILogicalDisk(MEMORY_dGetByte(0x301), cmd,
+				(uint32_t)sector |
+				((uint32_t)MEMORY_dGetByte(0x30c) << 16) |
+				((uint32_t)MEMORY_dGetByte(0x30d) << 24),
+				data, length);
+	}
+	else if (MEMORY_dGetByte(0x300) == 0x20 && pbi_sio_disk != NULL) {
+		/* The APT physical-disk interface uses DUNIT 1 for the primary disk. */
+		if (MEMORY_dGetByte(0x301) == 1)
+			result = SIO_HandlePBIDisk(MEMORY_dGetByte(0x301), cmd,
+				(uint32_t)sector, data, length);
+	}
+	else if (MEMORY_dGetByte(0x300) == 0x31 && unit < 8 && pbi_sio_disk != NULL &&
+		 pbi_sio_mounted_drives[unit].mounted)
+		result = SIO_HandlePBILogicalDisk((UBYTE)(unit + 1), cmd, (uint32_t)sector, data, length);
+	else if (MEMORY_dGetByte(0x300) != 0x60 && unit < SIO_MAX_DRIVES && (SIO_drive_status[unit] != SIO_OFF || BINLOAD_start_binloading)) {	/* UBYTE range ! */
 #ifdef DEBUG
 		Log_print("SIO disk command is %02x %02x %02x %02x %02x   %02x %02x %02x %02x %02x %02x",
 			cmd, MEMORY_dGetByte(0x303), MEMORY_dGetByte(0x304), MEMORY_dGetByte(0x305), MEMORY_dGetByte(0x306),
@@ -1305,6 +1725,7 @@ void SIO_Handler(void)
 	MEMORY_dPutByte(0x0303, CPU_regY);
 	MEMORY_dPutByte(0x42,0);
 	CPU_SetC;
+	SIO_TraceComplete();
 
 	/* After each SIO operation a routine called SENDDS ($EC5F in OSB) is
 	   invoked, which, among other functions, silences the sound
@@ -1358,6 +1779,13 @@ static UBYTE Command_Frame(void)
 			   CommandFrame[3], CommandFrame[4]);
 		TransferStatus = SIO_NoFrame;
 		return 0;
+	}
+	if (sio_trace_file != NULL) {
+		fprintf(sio_trace_file,
+		        "SERIAL FRAME drive=D%d cmd=$%02X sector=%d aux=$%02X,$%02X checksum=$%02X\n",
+		        unit + 1, CommandFrame[1], sector,
+		        CommandFrame[2], CommandFrame[3], CommandFrame[4]);
+		fflush(sio_trace_file);
 	}
 	switch (CommandFrame[1]) {
 	case 0x4e:				/* Read Status */

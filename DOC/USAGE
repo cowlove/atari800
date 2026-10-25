@@ -148,6 +148,15 @@ Command line options
 -cart-type <0..160>   Select type of cartridge inserted with -cart. 0 means
                       no cartridge, and other values indicate a specific
                       cartridge type as in cart.txt.
+
+-pbi-sio-disk <file>  Attach a raw 512-byte-sector image as PBI SIO device $A0.
+                      Sector writes are written directly to the image.
+
+-dump-screen-after <seconds>
+                      After this many emulated PAL/NTSC seconds, dump the 24x40
+                      Graphics 0 screen at SAVMSC as ASCII to stdout and exit.
+-sio-trace <filename>
+                      Log each SIOV request's DCB to the specified file.
 -cart2 <filename>     Insert second cartridge (CART or raw format)
                       Only if first cartridge is SpartaDOS X (64 or 128)
 -cart2-type <0..160>  Similar to -cart-type. Select type of cartridge inserted
@@ -173,6 +182,7 @@ Command line options
 -voiceboxii           Emulate the Alien Group Voice Box II
 
 -nopatch              Don't patch SIO routine in OS
+-exit-on-ctrl-c       Exit emulator instead of entering monitor on Ctrl+C
 -nopatchall           Don't patch OS at all, H:, P: and R: devices won't work
 -H1 <path>            Set path for H1: device
 -H2 <path>            Set path for H2: device
@@ -612,4 +622,3 @@ Alt        Atari/Inverse key (either Alt key will work)
 Joystick 0 is operated by the mouse position relative to the center of the
 screen. The mouse button acts as the trigger. On Linux, standard joysticks
 are also supported.
-
