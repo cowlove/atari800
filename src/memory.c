@@ -733,6 +733,11 @@ void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval)
 	int antic_bank = 0;
 	int mapram_selected = FALSE;
 	int new_mapram_selected = FALSE;
+	int pbi_rom_active = PBI_CSIM_ROMActive();
+	Log_print("PORTB effective value: $%02X -> $%02X (OS ROM %s)",
+	          oldval, byte, (byte & 0x01) ? "enabled" : "disabled");
+	if (pbi_rom_active)
+		PBI_CSIM_SaveROM();
 
 	/* MapRAM is selected if RAM > 20 KB, Self Test is enabled while OS ROM is disabled,
 	   and both CPU & ANTIC have access to base RAM. */
@@ -810,7 +815,11 @@ void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval)
 			/* Enable OS ROM */
 			if (MEMORY_ram_size > 48) {
 				memcpy(under_atarixl_os, MEMORY_mem + 0xc000, 0x1000);
-				memcpy(under_atarixl_os + 0x1800, MEMORY_mem + 0xd800, 0x2800);
+				if (pbi_rom_active) {
+					memcpy(under_atarixl_os + 0x2000, MEMORY_mem + 0xe000, 0x2000);
+				}
+				else
+					memcpy(under_atarixl_os + 0x1800, MEMORY_mem + 0xd800, 0x2800);
 				MEMORY_SetROM(0xc000, 0xcfff);
 				MEMORY_SetROM(0xd800, 0xffff);
 			}
@@ -909,6 +918,26 @@ void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval)
 			memcpy(under_atarixl_os + 0x1000, MEMORY_mem + 0x5000, 0x800);
 			memcpy(MEMORY_mem + 0x5000, mapram_memory, 0x800);
 		}
+	}
+
+	if (pbi_rom_active)
+		PBI_CSIM_RestoreROM();
+}
+
+void MEMORY_CSIM_UnmapPBI(void)
+{
+	UBYTE portb = (UBYTE) (PIA_PORTB | PIA_PORTB_mask);
+	if (portb & 0x01) {
+		memcpy(MEMORY_mem + 0xd800, MEMORY_os + 0x1800, 0x800);
+		MEMORY_SetROM(0xd800, 0xdfff);
+	}
+	else if (MEMORY_ram_size > 48) {
+		memcpy(MEMORY_mem + 0xd800, under_atarixl_os + 0x1800, 0x800);
+		MEMORY_SetRAM(0xd800, 0xdfff);
+	}
+	else {
+		MEMORY_dFillMem(0xd800, 0xff, 0x800);
+		MEMORY_SetROM(0xd800, 0xdfff);
 	}
 }
 

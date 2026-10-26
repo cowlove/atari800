@@ -275,12 +275,32 @@ int PBI_CSIM_D1FFWrite(UBYTE byte)
 		return TRUE;
 	}
 	if (csim_pbiROM_active) {
-		memcpy(pbiROM, MEMORY_mem + 0xd800, sizeof(pbiROM));
-		MEMORY_SetROM(0xd800, 0xdfff);
+		PBI_CSIM_SaveROM();
+		MEMORY_CSIM_UnmapPBI();
 		csim_pbiROM_active = FALSE;
 		Log_print("PBI hook: saved pbiROM and unmapped it\n");
+		return TRUE;
 	}
 	return FALSE;
+}
+
+int PBI_CSIM_ROMActive(void)
+{
+	return csim_pbiROM_active;
+}
+
+void PBI_CSIM_SaveROM(void)
+{
+	if (csim_pbiROM_active)
+		memcpy(pbiROM, MEMORY_mem + 0xd800, sizeof(pbiROM));
+}
+
+void PBI_CSIM_RestoreROM(void)
+{
+	if (csim_pbiROM_active) {
+		memcpy(MEMORY_mem + 0xd800, pbiROM, sizeof(pbiROM));
+		MEMORY_SetRAM(0xd800, 0xdfff);
+	}
 }
 
 void PBI_CSIM_D830Write(UBYTE byte)
