@@ -54,7 +54,7 @@
 #endif
 
 extern void csim_setup_with_ram(uint8_t *ram, size_t ram_size);
-extern void handlePbiRequest(void *request);
+extern void csim_pbi_control_block_write(uint16_t addr, void *request);
 extern void csim_atari800_cpu_tick(uint32_t cycles);
 extern int csim_pbi_irq_pending(void);
 static int csim_pbiROM_active = FALSE;
@@ -316,14 +316,14 @@ void PBI_CSIM_RestoreROM(void)
 	}
 }
 
-void PBI_CSIM_D8xxWrite(UWORD addr, UBYTE byte)
+void PBI_CSIM_ControlBlockWrite(UWORD addr, UBYTE byte)
 {
 	if ((addr == 0xd830 || addr == 0xd840) && byte != 0) {
 		if (!csim_runtime_initialized) {
 			csim_setup_with_ram(MEMORY_mem, 65536);
 			csim_runtime_initialized = TRUE;
 		}
-		handlePbiRequest(MEMORY_mem + addr);
+		csim_pbi_control_block_write(addr, MEMORY_mem + addr);
 		PBI_CSIM_UpdateIRQ();
 	}
 }
