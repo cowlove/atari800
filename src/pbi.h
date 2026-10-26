@@ -12,7 +12,7 @@ void PBI_Reset(void);
 UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects);
 void PBI_D1PutByte(UWORD addr, UBYTE byte);
 int PBI_CSIM_D1FFWrite(UBYTE byte);
-void PBI_CSIM_D830Write(UBYTE byte);
+void PBI_CSIM_D8xxWrite(UWORD addr, UBYTE byte);
 void PBI_CSIM_CycleTick(unsigned int cycles);
 int PBI_CSIM_UpdateIRQ(void);
 int PBI_CSIM_ROMActive(void);

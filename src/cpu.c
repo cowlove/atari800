@@ -83,15 +83,15 @@
 static void CPU_PBIObservedPutByte(UWORD addr, UBYTE byte)
 {
 	MEMORY_PutByte(addr, byte);
-	if (addr == 0xd830)
-		PBI_CSIM_D830Write(byte);
+	if (addr == 0xd830 || addr == 0xd840)
+		PBI_CSIM_D8xxWrite(addr, byte);
 }
 
 static void CPU_PBIObservedDirectPutByte(UWORD addr, UBYTE byte)
 {
 	MEMORY_dPutByte(addr, byte);
-	if (addr == 0xd830)
-		PBI_CSIM_D830Write(byte);
+	if (addr == 0xd830 || addr == 0xd840)
+		PBI_CSIM_D8xxWrite(addr, byte);
 }
 
 #undef MEMORY_PutByte

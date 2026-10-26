@@ -316,14 +316,14 @@ void PBI_CSIM_RestoreROM(void)
 	}
 }
 
-void PBI_CSIM_D830Write(UBYTE byte)
+void PBI_CSIM_D8xxWrite(UWORD addr, UBYTE byte)
 {
-	if (byte != 0) {
+	if ((addr == 0xd830 || addr == 0xd840) && byte != 0) {
 		if (!csim_runtime_initialized) {
 			csim_setup_with_ram(MEMORY_mem, 65536);
 			csim_runtime_initialized = TRUE;
 		}
-		handlePbiRequest(MEMORY_mem + 0xd830);
+		handlePbiRequest(MEMORY_mem + addr);
 		PBI_CSIM_UpdateIRQ();
 	}
 }
