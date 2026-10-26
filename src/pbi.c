@@ -59,7 +59,7 @@ extern void csim_atari800_cpu_tick(uint32_t cycles);
 extern int csim_pbi_irq_pending(void);
 static int csim_pbiROM_active = FALSE;
 static int csim_runtime_initialized = FALSE;
-static volatile int csim_nmi_pending = FALSE;
+static int csim_irq_level = FALSE;
 
 /* stores the current state of the D1FF register, real hardware has 1
  * bit per device, the bits are on the devices themselves */
@@ -162,12 +162,13 @@ void PBI_Reset(void)
 	if (PBI_XLD_enabled) PBI_XLD_Reset();
 #endif
 	PBI_IRQ = 0;
-	csim_nmi_pending = FALSE;
+	csim_irq_level = FALSE;
+	CPU_CSIM_SetIRQ(FALSE);
 }
 
 UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 {
-	int result = 0xff;
+	int result = PBI_NOT_HANDLED;
 	int csim_irq_pending = FALSE;
 	/* MIO and BB do not follow the spec, they take over the bus: */
 #ifdef PBI_MIO
@@ -177,7 +178,7 @@ UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 	if (PBI_BB_enabled) return PBI_BB_D1GetByte(addr, no_side_effects);
 #endif
 	if (addr == 0xd1ff) {
-		csim_irq_pending = csim_pbi_irq_pending();
+		csim_irq_pending = PBI_CSIM_UpdateIRQ();
 		Log_print("CSIM D1FF status read: irq=%d, PC=$%04X\n", csim_irq_pending, CPU_regPC);
 	}
 	/* Remaining PBI devices cooperate, following spec */
@@ -332,29 +333,26 @@ void PBI_CSIM_D830Write(UBYTE byte)
 		handlePbiRequest(MEMORY_mem + 0xd830);
 		Log_print("PBI hook: CSIM request returned result=$%02X carry=$%02X req=$%02X\n",
 			MEMORY_mem[0xd836], MEMORY_mem[0xd835], MEMORY_mem[0xd830]);
+		PBI_CSIM_UpdateIRQ();
 	}
 }
 
 void PBI_CSIM_CycleTick(unsigned int cycles)
 {
 	csim_atari800_cpu_tick(cycles);
+	PBI_CSIM_UpdateIRQ();
 }
 
-int PBI_CSIM_TakeNMI(void)
+int PBI_CSIM_UpdateIRQ(void)
 {
-	if (!csim_nmi_pending)
-		return FALSE;
-	csim_nmi_pending = FALSE;
-	Log_print("CSIM NMI consumed by CPU at PC=$%04X (IRQ level=%d)\n",
-		CPU_regPC, csim_pbi_irq_pending());
-	return TRUE;
-}
-
-void PBI_CSIM_RequestNMI(void)
-{
-	csim_nmi_pending = TRUE;
-	Log_print("CSIM NMI request latched at PC=$%04X (IRQ level=%d)\n",
-		CPU_regPC, csim_pbi_irq_pending());
+	int pending = csim_pbi_irq_pending();
+	if (pending != csim_irq_level) {
+		Log_print("CSIM PBI /IRQ %s at PC=$%04X\n",
+			pending ? "asserted (active low)" : "released", CPU_regPC);
+		csim_irq_level = pending;
+	}
+	CPU_CSIM_SetIRQ(pending);
+	return pending;
 }
 
 /* $D6xx */

@@ -46,6 +46,7 @@ void CPU_Reset(void);
 void CPU_StateSave(UBYTE SaveVerbose);
 void CPU_StateRead(UBYTE SaveVerbose, UBYTE StateVersion);
 void CPU_NMI(void);
+void CPU_CSIM_SetIRQ(int active);
 void CPU_GO(int limit);
 #define CPU_GenerateIRQ() (CPU_IRQ = 1)
 

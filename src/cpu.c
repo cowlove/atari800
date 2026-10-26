@@ -70,7 +70,6 @@
 #include "memory.h"
 #include "monitor.h"
 #include "pbi.h"
-#include "log.h"
 #include "sio.h"
 #ifndef BASIC
 #include "statesav.h"
@@ -128,6 +127,7 @@ unsigned int CPU_remember_jmp_curpos = 0;
 
 UBYTE CPU_cim_encountered = FALSE;
 UBYTE CPU_IRQ;
+static UBYTE CPU_CSIM_IRQ;
 UBYTE CPU_delayed_nmi;
 
 #if defined(NEW_CYCLE_EXACT) && !defined(FALCON_CPUASM)
@@ -415,6 +415,11 @@ void CPU_NMI(void)
 	INC_RET_NESTING;
 }
 
+void CPU_CSIM_SetIRQ(int active)
+{
+	CPU_CSIM_IRQ = active ? TRUE : FALSE;
+}
+
 /* avoid copy&pasting whole CPUCHECKIRQ */
 #ifndef FALCON_CPUASM
 #define CPUCHECKIRQ_SAVE_S
@@ -426,7 +431,7 @@ void CPU_NMI(void)
 
 /* Check pending IRQ, helps in (not only) Lucasfilm games */
 #define CPUCHECKIRQ \
-	if (CPU_IRQ && !(CPU_regP & CPU_I_FLAG) && ANTIC_xpos < ANTIC_xpos_limit) { \
+	if ((CPU_IRQ || CPU_CSIM_IRQ) && !(CPU_regP & CPU_I_FLAG) && ANTIC_xpos < ANTIC_xpos_limit) { \
 		CPUCHECKIRQ_SAVE_S; \
 		PHPC; \
 		PHPB0; \
@@ -652,13 +657,6 @@ void CPU_GO(int limit)
 #ifndef FALCON_CPUASM
 	while (ANTIC_xpos < ANTIC_xpos_limit) {
 		CPU_delayed_nmi = 0;
-		if (PBI_CSIM_TakeNMI()) {
-			UPDATE_GLOBAL_REGS;
-			CPU_NMI();
-			Log_print("CSIM NMI entered handler at PC=$%04X\n", CPU_regPC);
-			UPDATE_LOCAL_REGS;
-			csim_cycle_accumulator += 7;
-		}
 #ifdef NEW_CYCLE_EXACT
 		if (service_pokey_irq) {
 			service_pokey_irq = 0;
@@ -2536,6 +2534,7 @@ void CPU_Reset(void)
 #endif
 
 	CPU_IRQ = 0;
+	CPU_CSIM_IRQ = 0;
 
 	CPU_regP = 0x34;				/* The unused bit is always 1, I flag set! */
 	CPU_PutStatus();	/* Make sure flags are all updated */
