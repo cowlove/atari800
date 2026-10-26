@@ -734,9 +734,6 @@ void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval)
 	int mapram_selected = FALSE;
 	int new_mapram_selected = FALSE;
 	int pbi_rom_active = PBI_CSIM_ROMActive();
-	Log_print("PORTB effective value: $%02X -> $%02X (OS ROM %s, PBI overlay %s)",
-	          oldval, byte, (byte & 0x01) ? "enabled" : "disabled",
-	          pbi_rom_active ? "active" : "inactive");
 	if (pbi_rom_active)
 		PBI_CSIM_SaveROM();
 

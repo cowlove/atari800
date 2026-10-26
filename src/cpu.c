@@ -70,6 +70,7 @@
 #include "memory.h"
 #include "monitor.h"
 #include "pbi.h"
+#include "log.h"
 #include "sio.h"
 #ifndef BASIC
 #include "statesav.h"
@@ -654,6 +655,7 @@ void CPU_GO(int limit)
 		if (PBI_CSIM_TakeNMI()) {
 			UPDATE_GLOBAL_REGS;
 			CPU_NMI();
+			Log_print("CSIM NMI entered handler at PC=$%04X\n", CPU_regPC);
 			UPDATE_LOCAL_REGS;
 			csim_cycle_accumulator += 7;
 		}

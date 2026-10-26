@@ -168,6 +168,7 @@ void PBI_Reset(void)
 UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 {
 	int result = 0xff;
+	int csim_irq_pending = FALSE;
 	/* MIO and BB do not follow the spec, they take over the bus: */
 #ifdef PBI_MIO
 	if (PBI_MIO_enabled) return PBI_MIO_D1GetByte(addr, no_side_effects);
@@ -175,6 +176,10 @@ UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 #ifdef PBI_BB
 	if (PBI_BB_enabled) return PBI_BB_D1GetByte(addr, no_side_effects);
 #endif
+	if (addr == 0xd1ff) {
+		csim_irq_pending = csim_pbi_irq_pending();
+		Log_print("CSIM D1FF status read: irq=%d, PC=$%04X\n", csim_irq_pending, CPU_regPC);
+	}
 	/* Remaining PBI devices cooperate, following spec */
 #ifdef PBI_XLD
 	if (PBI_XLD_enabled && !no_side_effects) result = PBI_XLD_D1GetByte(addr);
@@ -183,7 +188,7 @@ UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 	if (result == PBI_NOT_HANDLED && PBI_PROTO80_enabled) result = PBI_PROTO80_D1GetByte(addr, no_side_effects);
 #endif
 	if (result != PBI_NOT_HANDLED) {
-		if (addr == 0xd1ff && csim_pbi_irq_pending())
+		if (addr == 0xd1ff && csim_irq_pending)
 			result |= 0x02;
 		return (UBYTE) result;
 	}
@@ -196,7 +201,7 @@ UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 		if (PBI_XLD_enabled && !no_side_effects) result |= PBI_XLD_D1ffGetByte();
 #endif
 		/* add more devices here... */
-		if (csim_pbi_irq_pending())
+		if (csim_irq_pending)
 			result |= 0x02;
 		return result;
 	}
@@ -340,12 +345,16 @@ int PBI_CSIM_TakeNMI(void)
 	if (!csim_nmi_pending)
 		return FALSE;
 	csim_nmi_pending = FALSE;
+	Log_print("CSIM NMI consumed by CPU at PC=$%04X (IRQ level=%d)\n",
+		CPU_regPC, csim_pbi_irq_pending());
 	return TRUE;
 }
 
 void PBI_CSIM_RequestNMI(void)
 {
 	csim_nmi_pending = TRUE;
+	Log_print("CSIM NMI request latched at PC=$%04X (IRQ level=%d)\n",
+		CPU_regPC, csim_pbi_irq_pending());
 }
 
 /* $D6xx */
