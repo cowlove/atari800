@@ -179,7 +179,6 @@ UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 #endif
 	if (addr == 0xd1ff) {
 		csim_irq_pending = PBI_CSIM_UpdateIRQ();
-		Log_print("CSIM D1FF status read: irq=%d, PC=$%04X\n", csim_irq_pending, CPU_regPC);
 	}
 	/* Remaining PBI devices cooperate, following spec */
 #ifdef PBI_XLD
@@ -279,7 +278,6 @@ void PBI_D1PutByte(UWORD addr, UBYTE byte)
 
 int PBI_CSIM_D1FFWrite(UBYTE byte)
 {
-	Log_print("PBI hook: CPU write $D1FF <- $%02X\n", byte);
 	if (byte == 0x02) {
 		if (!csim_pbiROM_active) {
 			pbiROM[0x20] = 0;
@@ -288,14 +286,12 @@ int PBI_CSIM_D1FFWrite(UBYTE byte)
 		}
 		MEMORY_SetRAM(0xd800, 0xdfff);
 		csim_pbiROM_active = TRUE;
-		Log_print("PBI hook: mapped writable pbiROM at $D800-$DFFF\n");
 		return TRUE;
 	}
 	if (csim_pbiROM_active) {
 		PBI_CSIM_SaveROM();
 		MEMORY_CSIM_UnmapPBI();
 		csim_pbiROM_active = FALSE;
-		Log_print("PBI hook: saved pbiROM and unmapped it\n");
 		return TRUE;
 	}
 	return FALSE;
@@ -322,17 +318,12 @@ void PBI_CSIM_RestoreROM(void)
 
 void PBI_CSIM_D830Write(UBYTE byte)
 {
-	Log_print("PBI hook: CPU write $D830 <- $%02X\n", byte);
 	if (byte != 0) {
 		if (!csim_runtime_initialized) {
 			csim_setup_with_ram(MEMORY_mem, 65536);
 			csim_runtime_initialized = TRUE;
 		}
-		Log_print("PBI hook: dispatching CSIM request cmd=$%02X req=$%02X\n",
-			MEMORY_mem[0xd831], MEMORY_mem[0xd830]);
 		handlePbiRequest(MEMORY_mem + 0xd830);
-		Log_print("PBI hook: CSIM request returned result=$%02X carry=$%02X req=$%02X\n",
-			MEMORY_mem[0xd836], MEMORY_mem[0xd835], MEMORY_mem[0xd830]);
 		PBI_CSIM_UpdateIRQ();
 	}
 }
@@ -347,8 +338,6 @@ int PBI_CSIM_UpdateIRQ(void)
 {
 	int pending = csim_pbi_irq_pending();
 	if (pending != csim_irq_level) {
-		Log_print("CSIM PBI /IRQ %s at PC=$%04X\n",
-			pending ? "asserted (active low)" : "released", CPU_regPC);
 		csim_irq_level = pending;
 	}
 	CPU_CSIM_SetIRQ(pending);
