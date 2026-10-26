@@ -1370,10 +1370,10 @@ static UBYTE SIO_HandlePBIDisk(UBYTE unit, int command, uint32_t sector,
 		if (length != 512)
 			return 'E';
 		memset(DataBuffer, 0, 512);
-		DataBuffer[0] = 1; // bus id
-		DataBuffer[1] = 0; // controller id
-		DataBuffer[2] = 1; // device id
-		DataBuffer[3] = 3; // feature table
+		DataBuffer[0] = 1; /* bus id */
+		DataBuffer[1] = 0; /* controller id */
+		DataBuffer[2] = 1; /* device id */
+		DataBuffer[3] = 3; /* feature table */
 		DataBuffer[6] = PBI_SIO_SECTOR_SIZE & 0xff;
 		DataBuffer[7] = PBI_SIO_SECTOR_SIZE >> 8;
 		DataBuffer[8] = (UBYTE)pbi_sio_sector_count;
