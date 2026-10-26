@@ -1388,8 +1388,14 @@ static UBYTE SIO_HandlePBIDisk(UBYTE unit, int command, uint32_t sector,
 			return 'E';
 		MEMORY_CopyFromMem(address, DataBuffer, 6);
 		if (DataBuffer[0] & 0x20) {
-			DataBuffer[0] = 0x01;
-			DataBuffer[1] = 0x00;
+			UWORD drive_map = 0;
+			int drive;
+			for (drive = 0; drive < 8; drive++) {
+				if (pbi_sio_mounted_drives[drive].mounted)
+					drive_map |= (UWORD)(1U << drive);
+			}
+			DataBuffer[0] = (UBYTE)drive_map;
+			DataBuffer[1] = (UBYTE)(drive_map >> 8);
 			MEMORY_CopyToMem(DataBuffer, address, 6);
 			return 'C';
 		}
@@ -1474,6 +1480,7 @@ static UBYTE SIO_HandlePBILogicalDisk(UBYTE drive, int command, uint32_t sector,
 		DataBuffer[1] = 0;
 		DataBuffer[2] = 1;
 		DataBuffer[3] = (UBYTE)mounted->partition_id;
+		DataBuffer[4] = (UBYTE)(mounted->partition_id >> 8);
 		DataBuffer[6] = PBI_SIO_SECTOR_SIZE & 0xff;
 		DataBuffer[7] = PBI_SIO_SECTOR_SIZE >> 8;
 		DataBuffer[8] = (UBYTE)mounted->sector_count;
@@ -1503,6 +1510,43 @@ static UBYTE SIO_HandlePBILogicalDisk(UBYTE drive, int command, uint32_t sector,
 	default:
 		return 'N';
 	}
+}
+
+static UBYTE SIO_HandlePBIDiskInfo(UBYTE partition_id, UWORD address, int length)
+{
+	int drive;
+	pbi_sio_mounted_drive_t *mounted = NULL;
+
+	if (length != 64)
+		return 'E';
+	for (drive = 0; drive < 8; drive++) {
+		if (pbi_sio_mounted_drives[drive].mounted &&
+		    pbi_sio_mounted_drives[drive].partition_id == partition_id) {
+			mounted = &pbi_sio_mounted_drives[drive];
+			break;
+		}
+	}
+	if (mounted == NULL)
+		return 'N';
+
+	memset(DataBuffer, 0, 64);
+	DataBuffer[0] = 1;
+	DataBuffer[1] = 0;
+	DataBuffer[2] = 1;
+	DataBuffer[3] = (UBYTE)mounted->partition_id;
+	DataBuffer[4] = (UBYTE)(mounted->partition_id >> 8);
+	DataBuffer[6] = PBI_SIO_SECTOR_SIZE & 0xff;
+	DataBuffer[7] = PBI_SIO_SECTOR_SIZE >> 8;
+	DataBuffer[8] = (UBYTE)mounted->sector_count;
+	DataBuffer[9] = (UBYTE)(mounted->sector_count >> 8);
+	DataBuffer[10] = (UBYTE)(mounted->sector_count >> 16);
+	DataBuffer[11] = (UBYTE)(mounted->sector_count >> 24);
+	DataBuffer[12] = (UBYTE)mounted->start_sector;
+	DataBuffer[13] = (UBYTE)(mounted->start_sector >> 8);
+	DataBuffer[14] = (UBYTE)(mounted->start_sector >> 16);
+	DataBuffer[15] = (UBYTE)(mounted->start_sector >> 24);
+	MEMORY_CopyToMem(DataBuffer, address, 64);
+	return 'C';
 }
 
 /* SIO patch emulation routine */
@@ -1538,7 +1582,10 @@ void SIO_Handler(void)
 	/* Disk 1 -> unit = 0 */
 	unit -= 0x31;
 
-	if ((MEMORY_dGetByte(0x300) == 0xa0 || MEMORY_dGetByte(0x300) == 0xb1) && pbi_sio_disk != NULL) {
+	if ((MEMORY_dGetByte(0x300) == 0x31 || MEMORY_dGetByte(0x300) == 0xb1) &&
+	    cmd == 0x6e && pbi_sio_disk != NULL)
+		result = SIO_HandlePBIDiskInfo(MEMORY_dGetByte(0x301), data, length);
+	else if ((MEMORY_dGetByte(0x300) == 0xa0 || MEMORY_dGetByte(0x300) == 0xb1) && pbi_sio_disk != NULL) {
 		if (MEMORY_dGetByte(0x30e) != 0 || MEMORY_dGetByte(0x30f) != 0)
 			result = 'E';
 		else if (MEMORY_dGetByte(0x300) == 0xa0)

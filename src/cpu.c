@@ -69,6 +69,7 @@
 #include "pokey.h"
 #include "memory.h"
 #include "monitor.h"
+#include "pbi.h"
 #include "sio.h"
 #ifndef BASIC
 #include "statesav.h"
@@ -77,6 +78,27 @@
 #endif
 #endif /* BASIC */
 #endif /* ASAP */
+
+#ifndef ASAP
+static void CPU_PBIObservedPutByte(UWORD addr, UBYTE byte)
+{
+	MEMORY_PutByte(addr, byte);
+	if (addr == 0xd830)
+		PBI_CSIM_D830Write(byte);
+}
+
+static void CPU_PBIObservedDirectPutByte(UWORD addr, UBYTE byte)
+{
+	MEMORY_dPutByte(addr, byte);
+	if (addr == 0xd830)
+		PBI_CSIM_D830Write(byte);
+}
+
+#undef MEMORY_PutByte
+#undef MEMORY_dPutByte
+#define MEMORY_PutByte(addr, byte) CPU_PBIObservedPutByte((UWORD) (addr), (UBYTE) (byte))
+#define MEMORY_dPutByte(addr, byte) CPU_PBIObservedDirectPutByte((UWORD) (addr), (UBYTE) (byte))
+#endif
 
 #ifdef LIBATARI800
 #include "libatari800/cpu_crash.h"

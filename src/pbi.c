@@ -32,6 +32,8 @@
 #include "util.h"
 #include "statesav.h"
 #include <stdlib.h>
+#include <stddef.h>
+#include <stdint.h>
 #ifdef PBI_MIO
 #include "pbi_mio.h"
 #endif
@@ -50,6 +52,11 @@
 #ifdef BIT3
 #include "bit3.h"
 #endif
+
+extern void csim_setup_with_ram(uint8_t *ram, size_t ram_size);
+extern void handlePbiRequest(void *request);
+static int csim_pbiROM_active = FALSE;
+static int csim_runtime_initialized = FALSE;
 
 /* stores the current state of the D1FF register, real hardware has 1
  * bit per device, the bits are on the devices themselves */
@@ -225,6 +232,10 @@ void PBI_D1PutByte(UWORD addr, UBYTE byte)
 			}
 			/* otherwise, update the latch */
 			D1FF_LATCH = byte;
+			if (PBI_CSIM_D1FFWrite(byte)) {
+				fp_active = FALSE;
+				return;
+			}
 #ifdef PBI_XLD
 			if (PBI_XLD_enabled && PBI_XLD_D1ffPutByte(byte) != PBI_NOT_HANDLED) {
 				/* handled */
@@ -247,6 +258,44 @@ void PBI_D1PutByte(UWORD addr, UBYTE byte)
 				fp_active = TRUE;
 			}
 		}
+	}
+}
+
+int PBI_CSIM_D1FFWrite(UBYTE byte)
+{
+	Log_print("PBI hook: CPU write $D1FF <- $%02X\n", byte);
+	if (byte == 0x02) {
+		if (!csim_pbiROM_active) {
+			pbiROM[0x20] = 0;
+			memcpy(MEMORY_mem + 0xd800, pbiROM, sizeof(pbiROM));
+		}
+		MEMORY_SetRAM(0xd800, 0xdfff);
+		csim_pbiROM_active = TRUE;
+		Log_print("PBI hook: mapped writable pbiROM at $D800-$DFFF\n");
+		return TRUE;
+	}
+	if (csim_pbiROM_active) {
+		memcpy(pbiROM, MEMORY_mem + 0xd800, sizeof(pbiROM));
+		MEMORY_SetROM(0xd800, 0xdfff);
+		csim_pbiROM_active = FALSE;
+		Log_print("PBI hook: saved pbiROM and unmapped it\n");
+	}
+	return FALSE;
+}
+
+void PBI_CSIM_D830Write(UBYTE byte)
+{
+	Log_print("PBI hook: CPU write $D830 <- $%02X\n", byte);
+	if (byte != 0) {
+		if (!csim_runtime_initialized) {
+			csim_setup_with_ram(MEMORY_mem, 65536);
+			csim_runtime_initialized = TRUE;
+		}
+		Log_print("PBI hook: dispatching CSIM request cmd=$%02X req=$%02X\n",
+			MEMORY_mem[0xd831], MEMORY_mem[0xd830]);
+		handlePbiRequest(MEMORY_mem + 0xd830);
+		Log_print("PBI hook: CSIM request returned result=$%02X carry=$%02X req=$%02X\n",
+			MEMORY_mem[0xd836], MEMORY_mem[0xd835], MEMORY_mem[0xd830]);
 	}
 }
 
