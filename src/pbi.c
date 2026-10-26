@@ -267,6 +267,7 @@ int PBI_CSIM_D1FFWrite(UBYTE byte)
 	if (byte == 0x02) {
 		if (!csim_pbiROM_active) {
 			pbiROM[0x20] = 0;
+			MEMORY_CSIM_PinOS();
 			memcpy(MEMORY_mem + 0xd800, pbiROM, sizeof(pbiROM));
 		}
 		MEMORY_SetRAM(0xd800, 0xdfff);
