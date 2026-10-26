@@ -646,9 +646,17 @@ void CPU_GO(int limit)
 
 	CPUCHECKIRQ;
 
+	static int csim_cycle_accumulator = 0;
+
 #ifndef FALCON_CPUASM
 	while (ANTIC_xpos < ANTIC_xpos_limit) {
 		CPU_delayed_nmi = 0;
+		if (PBI_CSIM_TakeNMI()) {
+			UPDATE_GLOBAL_REGS;
+			CPU_NMI();
+			UPDATE_LOCAL_REGS;
+			csim_cycle_accumulator += 7;
+		}
 #ifdef NEW_CYCLE_EXACT
 		if (service_pokey_irq) {
 			service_pokey_irq = 0;
@@ -895,6 +903,11 @@ void CPU_GO(int limit)
 #ifndef CYCLES_PER_OPCODE
 		ANTIC_xpos += cycles[insn];
 #endif
+		csim_cycle_accumulator += cycles[insn];
+		if (csim_cycle_accumulator >= 16) {
+			PBI_CSIM_CycleTick((unsigned int) csim_cycle_accumulator);
+			csim_cycle_accumulator = 0;
+		}
 #ifdef NEW_CYCLE_EXACT
 		/* If a POKEY timer IRQ is pending, fire it at the exact cycle it should occur.
 		   POKEY_irq_at_xpos counts real machine cycles within the scanline, so map

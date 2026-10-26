@@ -734,7 +734,7 @@ void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval)
 	int mapram_selected = FALSE;
 	int new_mapram_selected = FALSE;
 	int pbi_rom_active = PBI_CSIM_ROMActive();
-	Log_print("PORTB effective value: $%02X -> $%02X (OS ROM requested %s, PBI pin %s)",
+	Log_print("PORTB effective value: $%02X -> $%02X (OS ROM %s, PBI overlay %s)",
 	          oldval, byte, (byte & 0x01) ? "enabled" : "disabled",
 	          pbi_rom_active ? "active" : "inactive");
 	if (pbi_rom_active)
@@ -811,7 +811,7 @@ void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval)
 	}
 
 	/* Enable/disable OS ROM in 0xc000-0xcfff and 0xd800-0xffff */
-	if (((oldval ^ byte) & 0x01) && !pbi_rom_active) {
+	if ((oldval ^ byte) & 0x01) {
 		if (byte & 0x01) {
 			/* Enable OS ROM */
 			if (MEMORY_ram_size > 48) {
@@ -922,23 +922,14 @@ void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval)
 	}
 
 	if (pbi_rom_active) {
-		MEMORY_CSIM_PinOS();
 		PBI_CSIM_RestoreROM();
 	}
 }
 
-void MEMORY_CSIM_PinOS(void)
+void MEMORY_CSIM_MapPBI(void)
 {
-	if (((PIA_PORTB | PIA_PORTB_mask) & 0x01) == 0 && !PBI_CSIM_ROMActive()
-	    && MEMORY_ram_size > 48) {
-		memcpy(under_atarixl_os, MEMORY_mem + 0xc000, 0x1000);
-		memcpy(under_atarixl_os + 0x1800, MEMORY_mem + 0xd800, 0x2800);
-	}
-	MEMORY_SetROM(0xc000, 0xcfff);
-	MEMORY_SetROM(0xd800, 0xffff);
-	memcpy(MEMORY_mem + 0xc000, MEMORY_os, 0x1000);
-	memcpy(MEMORY_mem + 0xd800, MEMORY_os + 0x1800, 0x2800);
-	ESC_PatchOS();
+	if (((PIA_PORTB | PIA_PORTB_mask) & 0x01) == 0 && MEMORY_ram_size > 48)
+		memcpy(under_atarixl_os + 0x1800, MEMORY_mem + 0xd800, 0x800);
 }
 
 void MEMORY_CSIM_UnmapPBI(void)
@@ -949,20 +940,12 @@ void MEMORY_CSIM_UnmapPBI(void)
 		MEMORY_SetROM(0xd800, 0xdfff);
 	}
 	else if (MEMORY_ram_size > 48) {
-		memcpy(MEMORY_mem + 0xc000, under_atarixl_os, 0x1000);
 		memcpy(MEMORY_mem + 0xd800, under_atarixl_os + 0x1800, 0x800);
-		memcpy(MEMORY_mem + 0xe000, under_atarixl_os + 0x2000, 0x2000);
-		MEMORY_SetRAM(0xc000, 0xcfff);
 		MEMORY_SetRAM(0xd800, 0xdfff);
-		MEMORY_SetRAM(0xe000, 0xffff);
 	}
 	else {
-		MEMORY_dFillMem(0xc000, 0xff, 0x1000);
 		MEMORY_dFillMem(0xd800, 0xff, 0x800);
-		MEMORY_dFillMem(0xe000, 0xff, 0x2000);
-		MEMORY_SetROM(0xc000, 0xcfff);
 		MEMORY_SetROM(0xd800, 0xdfff);
-		MEMORY_SetROM(0xe000, 0xffff);
 	}
 }
 

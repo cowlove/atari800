@@ -112,7 +112,7 @@ void MEMORY_StateRead(UBYTE SaveVerbose, UBYTE StateVersion);
 void MEMORY_CopyFromMem(UWORD from, UBYTE *to, int size);
 void MEMORY_CopyToMem(const UBYTE *from, UWORD to, int size);
 void MEMORY_HandlePORTB(UBYTE byte, UBYTE oldval);
-void MEMORY_CSIM_PinOS(void);
+void MEMORY_CSIM_MapPBI(void);
 void MEMORY_CSIM_UnmapPBI(void);
 void MEMORY_Cart809fDisable(void);
 void MEMORY_Cart809fEnable(void);

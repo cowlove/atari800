@@ -55,8 +55,11 @@
 
 extern void csim_setup_with_ram(uint8_t *ram, size_t ram_size);
 extern void handlePbiRequest(void *request);
+extern void csim_atari800_cpu_tick(uint32_t cycles);
+extern int csim_pbi_irq_pending(void);
 static int csim_pbiROM_active = FALSE;
 static int csim_runtime_initialized = FALSE;
+static volatile int csim_nmi_pending = FALSE;
 
 /* stores the current state of the D1FF register, real hardware has 1
  * bit per device, the bits are on the devices themselves */
@@ -159,6 +162,7 @@ void PBI_Reset(void)
 	if (PBI_XLD_enabled) PBI_XLD_Reset();
 #endif
 	PBI_IRQ = 0;
+	csim_nmi_pending = FALSE;
 }
 
 UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
@@ -178,7 +182,11 @@ UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 #ifdef PBI_PROTO80
 	if (result == PBI_NOT_HANDLED && PBI_PROTO80_enabled) result = PBI_PROTO80_D1GetByte(addr, no_side_effects);
 #endif
-	if(result != PBI_NOT_HANDLED) return (UBYTE)result;
+	if (result != PBI_NOT_HANDLED) {
+		if (addr == 0xd1ff && csim_pbi_irq_pending())
+			result |= 0x02;
+		return (UBYTE) result;
+	}
 	/* Each bit of D1FF is set by one of the 8 PBI devices to signal IRQ */
 	/* The XLD devices have been combined into a single handler */
 	if (addr == 0xd1ff) {
@@ -188,6 +196,8 @@ UBYTE PBI_D1GetByte(UWORD addr, int no_side_effects)
 		if (PBI_XLD_enabled && !no_side_effects) result |= PBI_XLD_D1ffGetByte();
 #endif
 		/* add more devices here... */
+		if (csim_pbi_irq_pending())
+			result |= 0x02;
 		return result;
 	}
 	/* addr was not handled: */
@@ -267,7 +277,7 @@ int PBI_CSIM_D1FFWrite(UBYTE byte)
 	if (byte == 0x02) {
 		if (!csim_pbiROM_active) {
 			pbiROM[0x20] = 0;
-			MEMORY_CSIM_PinOS();
+			MEMORY_CSIM_MapPBI();
 			memcpy(MEMORY_mem + 0xd800, pbiROM, sizeof(pbiROM));
 		}
 		MEMORY_SetRAM(0xd800, 0xdfff);
@@ -318,6 +328,24 @@ void PBI_CSIM_D830Write(UBYTE byte)
 		Log_print("PBI hook: CSIM request returned result=$%02X carry=$%02X req=$%02X\n",
 			MEMORY_mem[0xd836], MEMORY_mem[0xd835], MEMORY_mem[0xd830]);
 	}
+}
+
+void PBI_CSIM_CycleTick(unsigned int cycles)
+{
+	csim_atari800_cpu_tick(cycles);
+}
+
+int PBI_CSIM_TakeNMI(void)
+{
+	if (!csim_nmi_pending)
+		return FALSE;
+	csim_nmi_pending = FALSE;
+	return TRUE;
+}
+
+void PBI_CSIM_RequestNMI(void)
+{
+	csim_nmi_pending = TRUE;
 }
 
 /* $D6xx */
