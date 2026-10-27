@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #ifdef PBI_MIO
 #include "pbi_mio.h"
 #endif
@@ -58,6 +59,7 @@ extern void csim_pbi_control_block_write(uint16_t addr, void *request);
 extern void csim_atari800_cpu_tick(uint32_t cycles);
 extern int csim_pbi_irq_pending(void);
 static int csim_pbiROM_active = FALSE;
+static int csim_pbiROM_mapping_enabled = TRUE;
 static int csim_runtime_initialized = FALSE;
 static int csim_irq_level = FALSE;
 
@@ -82,6 +84,16 @@ int PBI_IRQ = 0;
 
 int PBI_Initialise(int *argc, char *argv[])
 {
+	int i, j;
+	for (i = j = 1; i < *argc; i++) {
+		if (strcmp(argv[i], "-no-csim-pbi-rom") == 0) {
+			csim_pbiROM_mapping_enabled = FALSE;
+			continue;
+		}
+		argv[j++] = argv[i];
+	}
+	*argc = j;
+
 	return TRUE
 #ifdef PBI_XLD
 		&& PBI_XLD_Initialise(argc, argv)
@@ -247,7 +259,7 @@ void PBI_D1PutByte(UWORD addr, UBYTE byte)
 			}
 			/* otherwise, update the latch */
 			D1FF_LATCH = byte;
-			if (PBI_CSIM_D1FFWrite(byte)) {
+			if (csim_pbiROM_mapping_enabled && PBI_CSIM_D1FFWrite(byte)) {
 				fp_active = FALSE;
 				return;
 			}
