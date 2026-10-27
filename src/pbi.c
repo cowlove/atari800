@@ -330,7 +330,7 @@ void PBI_CSIM_RestoreROM(void)
 
 void PBI_CSIM_ControlBlockWrite(UWORD addr, UBYTE byte)
 {
-	if ((addr == 0xd830 || addr == 0xd840) && byte != 0) {
+	if (csim_pbiROM_active && (addr == 0xd830 || addr == 0xd840) && byte != 0) {
 		if (!csim_runtime_initialized) {
 			csim_setup_with_ram(MEMORY_mem, 65536);
 			csim_runtime_initialized = TRUE;
