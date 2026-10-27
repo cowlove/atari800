@@ -207,6 +207,8 @@ void MEMORY_InitialiseMachine(void)
 		GTIA_TRIG[3] = 0;
 		if (GTIA_GRACTL & 4)
 			GTIA_TRIG_latch[3] = 0;
+		if (MEMORY_ram_size > 48)
+			memset(under_atarixl_os + 0x1800, 0, 0x800);
 	}
 	memcpy(MEMORY_mem + os_rom_start, MEMORY_os, os_size);
 	switch (Atari800_machine_type) {
