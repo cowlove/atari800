@@ -1467,8 +1467,6 @@ void Atari800_Frame(void)
 {
 	if (Atari800_screen_dump_after > 0 && screen_dump_start_frame < 0)
 		screen_dump_start_frame = Atari800_nframes;
-#ifndef BASIC
-	static int refresh_counter = 0;
 
 #ifdef CTRL_C_HANDLER
 	if (sigint_flag) {
@@ -1478,11 +1476,20 @@ void Atari800_Frame(void)
 			exit(0);
 		}
 		else {
+#ifdef BASIC
+			if (!Atari800_Exit(TRUE))
+				exit(0);
+			return;
+#else
 			INPUT_key_code = AKEY_UI;
 			UI_alt_function = UI_MENU_MONITOR;
+#endif
 		}
 	}
 #endif /* CTRL_C_HANDLER */
+
+#ifndef BASIC
+	static int refresh_counter = 0;
 
 	switch (INPUT_key_code) {
 	case AKEY_COLDSTART:
