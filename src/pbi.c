@@ -335,7 +335,12 @@ void PBI_CSIM_ControlBlockWrite(UWORD addr, UBYTE byte)
 			csim_setup_with_ram(MEMORY_mem, 65536);
 			csim_runtime_initialized = TRUE;
 		}
-		csim_pbi_control_block_write(addr, MEMORY_mem + addr);
+		/* On hardware the ESP's pbiROM[] is the memory mapped at $D800. Here
+		   the 6502 runs on a copy in MEMORY_mem, so sync it both ways around
+		   the request: COPYIN/COPYOUT data at $DC00 is pbiROM[0x400]. */
+		PBI_CSIM_SaveROM();
+		csim_pbi_control_block_write(addr, pbiROM + (addr - 0xd800));
+		PBI_CSIM_RestoreROM();
 		PBI_CSIM_UpdateIRQ();
 	}
 }
