@@ -59,7 +59,12 @@ extern void csim_pbi_control_block_write(uint16_t addr, void *request);
 extern void csim_atari800_cpu_tick(uint32_t cycles);
 extern int csim_pbi_irq_pending(void);
 static int csim_pbiROM_active = FALSE;
+#ifdef CSIM_BUS_CYCLE
+/* Bus-cycle mode: the board serves its PBI ROM at $D800 itself (extSel_). */
+static int csim_pbiROM_mapping_enabled = FALSE;
+#else
 static int csim_pbiROM_mapping_enabled = TRUE;
+#endif
 static int csim_runtime_initialized = FALSE;
 static int csim_irq_level = FALSE;
 

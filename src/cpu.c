@@ -79,7 +79,48 @@
 #endif /* BASIC */
 #endif /* ASAP */
 
-#ifndef ASAP
+#if !defined(ASAP) && defined(CSIM_BUS_CYCLE)
+/* csim bus-cycle mode (csim/a800: make BUS_CYCLE=1). Every CPU access runs
+   one bus cycle through the board's core 1 loop body (csim_cpu_bus_cycle()).
+   If the board asserted extSel_ it handled the access from its memory map
+   (base RAM, cartridge, extended banks, PBI ROM); otherwise the access goes
+   to atari800 as before (its RAM, ROMs and I/O chips). The board sees every
+   write either way, which is how it follows PORTB, $D1FF and $D5xx bank
+   switches. PBI requests reach it through its bus monitor, as on the
+   hardware, so the $D830/$D840 interception below is left out. */
+extern int csim_cpu_bus_cycle(UWORD addr, int read, UBYTE *data);
+
+static UBYTE CPU_CSIM_BusGetByte(UWORD addr)
+{
+	UBYTE data;
+	if (csim_cpu_bus_cycle(addr, TRUE, &data))
+		return data;
+	return MEMORY_attrib[addr] == MEMORY_HARDWARE ? MEMORY_HwGetByte(addr, FALSE) : MEMORY_mem[addr];
+}
+
+static void CPU_CSIM_BusPutByte(UWORD addr, UBYTE byte)
+{
+	if (csim_cpu_bus_cycle(addr, FALSE, &byte))
+		return;
+	if (MEMORY_attrib[addr] == MEMORY_RAM)
+		MEMORY_mem[addr] = byte;
+	else if (MEMORY_attrib[addr] == MEMORY_HARDWARE)
+		MEMORY_HwPutByte(addr, byte);
+}
+
+#undef MEMORY_GetByte
+#undef MEMORY_PutByte
+#undef MEMORY_dGetByte
+#undef MEMORY_dPutByte
+#undef MEMORY_dGetWord
+#undef MEMORY_dGetWordAligned
+#define MEMORY_GetByte(addr) CPU_CSIM_BusGetByte((UWORD) (addr))
+#define MEMORY_PutByte(addr, byte) CPU_CSIM_BusPutByte((UWORD) (addr), (UBYTE) (byte))
+#define MEMORY_dGetByte(addr) CPU_CSIM_BusGetByte((UWORD) (addr))
+#define MEMORY_dPutByte(addr, byte) CPU_CSIM_BusPutByte((UWORD) (addr), (UBYTE) (byte))
+#define MEMORY_dGetWord(addr) (CPU_CSIM_BusGetByte((UWORD) (addr)) | (CPU_CSIM_BusGetByte((UWORD) ((addr) + 1)) << 8))
+#define MEMORY_dGetWordAligned(addr) MEMORY_dGetWord(addr)
+#elif !defined(ASAP)
 static void CPU_PBIObservedPutByte(UWORD addr, UBYTE byte)
 {
 	MEMORY_PutByte(addr, byte);
