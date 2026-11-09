@@ -120,6 +120,10 @@ static void CPU_CSIM_BusPutByte(UWORD addr, UBYTE byte)
 #define MEMORY_dPutByte(addr, byte) CPU_CSIM_BusPutByte((UWORD) (addr), (UBYTE) (byte))
 #define MEMORY_dGetWord(addr) (CPU_CSIM_BusGetByte((UWORD) (addr)) | (CPU_CSIM_BusGetByte((UWORD) ((addr) + 1)) << 8))
 #define MEMORY_dGetWordAligned(addr) MEMORY_dGetWord(addr)
+/* The monitor's instruction history peeks at the code without a bus cycle:
+   on the board, extra reads would let a late bank switch catch up before the
+   real opcode fetch. It shows atari800's memory, not the board's. */
+#define CPU_HISTORY_PEEK(addr) MEMORY_mem[(UWORD) (addr)]
 #elif !defined(ASAP)
 static void CPU_PBIObservedPutByte(UWORD addr, UBYTE byte)
 {
@@ -202,6 +206,10 @@ static int service_pokey_irq;
 #define PL                  MEMORY_dGetByte(0x0100 + ++S)
 #define PH(x)               MEMORY_dPutByte(0x0100 + S--, x)
 #define PHW(x)              PH((x) >> 8); PH((x) & 0xff)
+
+#ifndef CPU_HISTORY_PEEK
+#define CPU_HISTORY_PEEK(addr) MEMORY_dGetByte(addr)
+#endif
 
 #ifndef FALCON_CPUASM
 
@@ -751,9 +759,9 @@ void CPU_GO(int limit)
 
 #ifdef MONITOR_BREAK
 		CPU_remember_PC[CPU_remember_PC_curpos] = GET_PC();
-		CPU_remember_op[CPU_remember_PC_curpos][0] = MEMORY_dGetByte(GET_PC());
-		CPU_remember_op[CPU_remember_PC_curpos][1] = MEMORY_dGetByte(GET_PC()+1);
-		CPU_remember_op[CPU_remember_PC_curpos][2] = MEMORY_dGetByte(GET_PC()+2);
+		CPU_remember_op[CPU_remember_PC_curpos][0] = CPU_HISTORY_PEEK(GET_PC());
+		CPU_remember_op[CPU_remember_PC_curpos][1] = CPU_HISTORY_PEEK(GET_PC()+1);
+		CPU_remember_op[CPU_remember_PC_curpos][2] = CPU_HISTORY_PEEK(GET_PC()+2);
 #ifdef NEW_CYCLE_EXACT
 		if (ANTIC_DRAWING_SCREEN)
 			CPU_remember_xpos[CPU_remember_PC_curpos] = ANTIC_cpu2antic_ptr[ANTIC_xpos] + (ANTIC_ypos << 8);
