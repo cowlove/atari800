@@ -98,6 +98,13 @@ int PBI_Initialise(int *argc, char *argv[])
 		argv[j++] = argv[i];
 	}
 	*argc = j;
+	/* The board's PBI RAM at $D600-$D7FF (main/mmu.cpp), $FF until written,
+	   as the XL's data bus pull-ups read. Bus-cycle mode gets it from the
+	   board's map instead. */
+	if (csim_pbiROM_mapping_enabled) {
+		PBI_D6D7ram = TRUE;
+		memset(MEMORY_mem + 0xd600, 0xff, 0x200);
+	}
 
 	return TRUE
 #ifdef PBI_XLD
