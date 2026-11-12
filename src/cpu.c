@@ -89,6 +89,8 @@
    switches. PBI requests reach it through its bus monitor, as on the
    hardware, so the $D830/$D840 interception below is left out. */
 extern int csim_cpu_bus_cycle(UWORD addr, int read, UBYTE *data);
+extern int csim_cpu_halted(void);
+extern void csim_cpu_halt_cycle(void);
 
 static UBYTE CPU_CSIM_BusGetByte(UWORD addr)
 {
@@ -706,6 +708,18 @@ void CPU_GO(int limit)
 #ifndef FALCON_CPUASM
 	while (ANTIC_xpos < ANTIC_xpos_limit) {
 		CPU_delayed_nmi = 0;
+#ifdef CSIM_BUS_CYCLE
+		/* The board holds halt_ (csim/a800/csim_stubs.cpp): no instruction.
+		   One idle bus cycle, core 0's tick (it releases the halt), one CPU
+		   cycle burnt, as a halted 6502 waits. Approximate: only at
+		   instruction boundaries, and ANTIC's NMIs aren't held off. */
+		if (csim_cpu_halted()) {
+			csim_cpu_halt_cycle();
+			PBI_CSIM_CycleTick(1);
+			ANTIC_xpos++;
+			continue;
+		}
+#endif
 #ifdef NEW_CYCLE_EXACT
 		if (service_pokey_irq) {
 			service_pokey_irq = 0;
