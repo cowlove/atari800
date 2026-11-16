@@ -361,6 +361,11 @@ void PBI_CSIM_CycleTick(unsigned int cycles)
 	PBI_CSIM_UpdateIRQ();
 }
 
+unsigned long csim_atari800_clock_hz(void)
+{
+	return Atari800_tv_mode == Atari800_TV_PAL ? 1773447UL : 1789790UL;
+}
+
 int PBI_CSIM_UpdateIRQ(void)
 {
 	int pending = csim_board_irq();
