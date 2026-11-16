@@ -468,12 +468,18 @@ void CPU_NMI(void)
    machine cycles since the last tick, from ANTIC's clock (ANTIC_CPU_CLOCK),
    so the cycles ANTIC's DMA steals and a WSYNC's wait count too, as they do
    for the ESP's CCOUNT on the hardware (cycles[] alone left the board's
-   clock ~36% slow). Called after each instruction and each halted cycle;
-   ticks once at least `min` cycles have passed. The first call only starts
-   the count, and a step back (none expected) is dropped. */
-static void CPU_CSIM_Tick(unsigned int min)
+   clock ~36% slow). Called after each instruction (its cycles) and each
+   halted cycle (1); ticks once at least `min` cycles have passed. The first
+   call only starts the count, and a step back (none expected) is dropped.
+
+   Bus-cycle mode: those other cycles are bus cycles too (ANTIC's DMA, the
+   6502 held by RDY), which core 1 runs its loop for; core 0 relies on that,
+   e.g. resume6502() opens halt_'s release for 15 ticks and counts on a bus
+   cycle inside them to apply it. So each machine cycle the CPU didn't
+   account for runs one idle bus cycle first (csim_board_halt_cycle()). */
+static void CPU_CSIM_Tick(unsigned int cpuCycles, unsigned int min)
 {
-	static unsigned int last;
+	static unsigned int last, cpuPending;
 	static int started = FALSE;
 	unsigned int now = ANTIC_CPU_CLOCK;
 	unsigned int delta = now - last;
@@ -482,12 +488,20 @@ static void CPU_CSIM_Tick(unsigned int min)
 		last = now;
 		return;
 	}
+	cpuPending += cpuCycles;
 	if (delta >= 0x80000000U) {
 		last = now;
+		cpuPending = 0;
 		return;
 	}
 	if (delta >= min) {
+#ifdef CSIM_BUS_CYCLE
+		unsigned int idle;
+		for (idle = delta > cpuPending ? delta - cpuPending : 0; idle > 0; idle--)
+			csim_board_halt_cycle();
+#endif
 		last = now;
+		cpuPending = 0;
 		PBI_CSIM_CycleTick(delta);
 	}
 }
@@ -741,7 +755,7 @@ void CPU_GO(int limit)
 		if (csim_board_halted()) {
 			csim_board_halt_cycle();
 			ANTIC_xpos++;
-			CPU_CSIM_Tick(1);
+			CPU_CSIM_Tick(1, 1);
 			continue;
 		}
 #endif
@@ -991,7 +1005,7 @@ void CPU_GO(int limit)
 #ifndef CYCLES_PER_OPCODE
 		ANTIC_xpos += cycles[insn];
 #endif
-		CPU_CSIM_Tick(16);
+		CPU_CSIM_Tick(cycles[insn], 16);
 #ifdef NEW_CYCLE_EXACT
 		/* If a POKEY timer IRQ is pending, fire it at the exact cycle it should occur.
 		   POKEY_irq_at_xpos counts real machine cycles within the scanline, so map
