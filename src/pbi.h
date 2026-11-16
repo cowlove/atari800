@@ -18,7 +18,6 @@ int PBI_CSIM_UpdateIRQ(void);
 int PBI_CSIM_ROMActive(void);
 void PBI_CSIM_SaveROM(void);
 void PBI_CSIM_RestoreROM(void);
-extern UBYTE pbiROM[0x800];
 UBYTE PBI_D6GetByte(UWORD addr, int no_side_effects);
 void PBI_D6PutByte(UWORD addr, UBYTE byte);
 UBYTE PBI_D7GetByte(UWORD addr, int no_side_effects);

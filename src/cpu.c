@@ -81,28 +81,26 @@
 
 #if !defined(ASAP) && defined(CSIM_BUS_CYCLE)
 /* csim bus-cycle mode (csim/a800: make BUS_CYCLE=1). Every CPU access runs
-   one bus cycle through the board's core 1 loop body (csim_cpu_bus_cycle()).
+   one bus cycle through the board's core 1 loop body (csim_board_bus_cycle()).
    If the board asserted extSel_ it handled the access from its memory map
    (base RAM, cartridge, extended banks, PBI ROM); otherwise the access goes
    to atari800 as before (its RAM, ROMs and I/O chips). The board sees every
    write either way, which is how it follows PORTB, $D1FF and $D5xx bank
    switches. PBI requests reach it through its bus monitor, as on the
    hardware, so the $D830/$D840 interception below is left out. */
-extern int csim_cpu_bus_cycle(UWORD addr, int read, UBYTE *data);
-extern int csim_cpu_halted(void);
-extern void csim_cpu_halt_cycle(void);
+#include "csim_atari800.h"
 
 static UBYTE CPU_CSIM_BusGetByte(UWORD addr)
 {
 	UBYTE data;
-	if (csim_cpu_bus_cycle(addr, TRUE, &data))
+	if (csim_board_bus_cycle(addr, TRUE, &data))
 		return data;
 	return MEMORY_attrib[addr] == MEMORY_HARDWARE ? MEMORY_HwGetByte(addr, FALSE) : MEMORY_mem[addr];
 }
 
 static void CPU_CSIM_BusPutByte(UWORD addr, UBYTE byte)
 {
-	if (csim_cpu_bus_cycle(addr, FALSE, &byte))
+	if (csim_board_bus_cycle(addr, FALSE, &byte))
 		return;
 	if (MEMORY_attrib[addr] == MEMORY_RAM)
 		MEMORY_mem[addr] = byte;
@@ -709,12 +707,12 @@ void CPU_GO(int limit)
 	while (ANTIC_xpos < ANTIC_xpos_limit) {
 		CPU_delayed_nmi = 0;
 #ifdef CSIM_BUS_CYCLE
-		/* The board holds halt_ (csim/a800/csim_stubs.cpp): no instruction.
+		/* The board holds halt_ (csim/a800/csim_atari800.cpp): no instruction.
 		   One idle bus cycle, core 0's tick (it releases the halt), one CPU
 		   cycle burnt, as a halted 6502 waits. Approximate: only at
 		   instruction boundaries, and ANTIC's NMIs aren't held off. */
-		if (csim_cpu_halted()) {
-			csim_cpu_halt_cycle();
+		if (csim_board_halted()) {
+			csim_board_halt_cycle();
 			PBI_CSIM_CycleTick(1);
 			ANTIC_xpos++;
 			continue;

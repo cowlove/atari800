@@ -54,10 +54,8 @@
 #include "bit3.h"
 #endif
 
-extern void csim_setup_with_ram(uint8_t *ram, size_t ram_size);
-extern void csim_pbi_control_block_write(uint16_t addr, void *request);
-extern void csim_atari800_cpu_tick(uint32_t cycles);
-extern int csim_pbi_irq_pending(void);
+/* The board (csim/a800/include/csim_atari800.h). */
+#include "csim_atari800.h"
 static int csim_pbiROM_active = FALSE;
 #ifdef CSIM_BUS_CYCLE
 /* Bus-cycle mode: the board serves its PBI ROM at $D800 itself (extSel_). */
@@ -344,14 +342,14 @@ void PBI_CSIM_ControlBlockWrite(UWORD addr, UBYTE byte)
 {
 	if (csim_pbiROM_active && (addr == 0xd830 || addr == 0xd840) && byte != 0) {
 		if (!csim_runtime_initialized) {
-			csim_setup_with_ram(MEMORY_mem, 65536);
+			csim_board_setup(MEMORY_mem, 65536);
 			csim_runtime_initialized = TRUE;
 		}
 		/* On hardware the ESP's pbiROM[] is the memory mapped at $D800. Here
 		   the 6502 runs on a copy in MEMORY_mem, so sync it both ways around
 		   the request: COPYIN/COPYOUT data at $DC00 is pbiROM[0x400]. */
 		PBI_CSIM_SaveROM();
-		csim_pbi_control_block_write(addr, pbiROM + (addr - 0xd800));
+		csim_board_pbi_request(addr, pbiROM + (addr - 0xd800));
 		PBI_CSIM_RestoreROM();
 		PBI_CSIM_UpdateIRQ();
 	}
@@ -359,13 +357,13 @@ void PBI_CSIM_ControlBlockWrite(UWORD addr, UBYTE byte)
 
 void PBI_CSIM_CycleTick(unsigned int cycles)
 {
-	csim_atari800_cpu_tick(cycles);
+	csim_board_tick(cycles);
 	PBI_CSIM_UpdateIRQ();
 }
 
 int PBI_CSIM_UpdateIRQ(void)
 {
-	int pending = csim_pbi_irq_pending();
+	int pending = csim_board_irq();
 	if (pending != csim_irq_level) {
 		csim_irq_level = pending;
 	}
