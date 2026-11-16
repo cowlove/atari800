@@ -464,6 +464,34 @@ void CPU_NMI(void)
 	INC_RET_NESTING;
 }
 
+/* The board's tick (csim_board_tick(), via PBI_CSIM_CycleTick()): the
+   machine cycles since the last tick, from ANTIC's clock (ANTIC_CPU_CLOCK),
+   so the cycles ANTIC's DMA steals and a WSYNC's wait count too, as they do
+   for the ESP's CCOUNT on the hardware (cycles[] alone left the board's
+   clock ~36% slow). Called after each instruction and each halted cycle;
+   ticks once at least `min` cycles have passed. The first call only starts
+   the count, and a step back (none expected) is dropped. */
+static void CPU_CSIM_Tick(unsigned int min)
+{
+	static unsigned int last;
+	static int started = FALSE;
+	unsigned int now = ANTIC_CPU_CLOCK;
+	unsigned int delta = now - last;
+	if (!started) {
+		started = TRUE;
+		last = now;
+		return;
+	}
+	if (delta >= 0x80000000U) {
+		last = now;
+		return;
+	}
+	if (delta >= min) {
+		last = now;
+		PBI_CSIM_CycleTick(delta);
+	}
+}
+
 void CPU_CSIM_SetIRQ(int active)
 {
 	CPU_CSIM_IRQ = active ? TRUE : FALSE;
@@ -701,7 +729,6 @@ void CPU_GO(int limit)
 
 	CPUCHECKIRQ;
 
-	static int csim_cycle_accumulator = 0;
 
 #ifndef FALCON_CPUASM
 	while (ANTIC_xpos < ANTIC_xpos_limit) {
@@ -713,8 +740,8 @@ void CPU_GO(int limit)
 		   instruction boundaries, and ANTIC's NMIs aren't held off. */
 		if (csim_board_halted()) {
 			csim_board_halt_cycle();
-			PBI_CSIM_CycleTick(1);
 			ANTIC_xpos++;
+			CPU_CSIM_Tick(1);
 			continue;
 		}
 #endif
@@ -964,11 +991,7 @@ void CPU_GO(int limit)
 #ifndef CYCLES_PER_OPCODE
 		ANTIC_xpos += cycles[insn];
 #endif
-		csim_cycle_accumulator += cycles[insn];
-		if (csim_cycle_accumulator >= 16) {
-			PBI_CSIM_CycleTick((unsigned int) csim_cycle_accumulator);
-			csim_cycle_accumulator = 0;
-		}
+		CPU_CSIM_Tick(16);
 #ifdef NEW_CYCLE_EXACT
 		/* If a POKEY timer IRQ is pending, fire it at the exact cycle it should occur.
 		   POKEY_irq_at_xpos counts real machine cycles within the scanline, so map
