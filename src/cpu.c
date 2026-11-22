@@ -748,11 +748,12 @@ void CPU_GO(int limit)
 	while (ANTIC_xpos < ANTIC_xpos_limit) {
 		CPU_delayed_nmi = 0;
 #ifdef CSIM_BUS_CYCLE
-		/* The board holds halt_ (csim/a800/csim_atari800.cpp): no instruction.
+		/* The board holds halt_ (csim/a800/csim_atari800.cpp), or its
+		   Sidecar holds RESET (csim_atari_reset.cpp): no instruction.
 		   One idle bus cycle, core 0's tick (it releases the halt), one CPU
 		   cycle burnt, as a halted 6502 waits. Approximate: only at
 		   instruction boundaries, and ANTIC's NMIs aren't held off. */
-		if (csim_board_halted()) {
+		if (csim_board_halted() || csim_board_reset_held()) {
 			csim_board_halt_cycle();
 			ANTIC_xpos++;
 			CPU_CSIM_Tick(1, 1);

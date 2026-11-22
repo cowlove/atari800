@@ -90,6 +90,8 @@
 #include "pokey.h"
 #include "rtime.h"
 #include "pbi.h"
+/* The board (csim/a800/include/csim_atari800.h): its RESET line. */
+#include "csim_atari800.h"
 #include "sio.h"
 #include "sysrom.h"
 #include "util.h"
@@ -1465,6 +1467,17 @@ static void basic_frame(void)
 
 void Atari800_Frame(void)
 {
+	/* The board released the Atari's RESET (csim/a800/csim_atari_reset.cpp):
+	   the RESET keys' resets, here at a frame boundary (their AKEY_ switch
+	   below isn't built with the BASIC front end csim uses). */
+	switch (csim_board_reset_request()) {
+	case 1:
+		Atari800_Warmstart();
+		break;
+	case 2:
+		Atari800_Coldstart();
+		break;
+	}
 	if (Atari800_screen_dump_after > 0 && screen_dump_start_frame < 0)
 		screen_dump_start_frame = Atari800_nframes;
 
