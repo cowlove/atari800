@@ -634,6 +634,15 @@ int Atari800_Initialise(int *argc, char *argv[])
 			if (Atari800_machine_type == Atari800_MACHINE_800)
 				MEMORY_ram_size = 52;
 		}
+		else if (strcmp(argv[i], "-ram") == 0 && i + 1 < *argc) {
+			/* csim: the machine's own RAM in KB, after its machine option
+			   (-xl -ram 16: a 600XL). */
+			int size = Util_sscandec(argv[++i]);
+			if (MEMORY_SizeValid(size))
+				MEMORY_ram_size = size;
+			else
+				Log_print("Invalid RAM size: %s", argv[i]);
+		}
 		else if (strcmp(argv[i], "-axlon0f") == 0) {
 			MEMORY_axlon_0f_mirror = TRUE;
 		}
@@ -817,6 +826,7 @@ int Atari800_Initialise(int *argc, char *argv[])
 					Log_print("\t-xe              Emulate Atari 130XE");
 					Log_print("\t-320xe           Emulate Atari 320XE (Compy-Shop)");
 					Log_print("\t-rambo           Emulate Atari 320XE (Rambo XL)");
+					Log_print("\t-ram <kb>         RAM size after the machine option (csim; 16: 600XL)");
 					Log_print("\t-576xe           Emulate Atari 576XE");
 					Log_print("\t-1088xe          Emulate Atari 1088XE");
 					Log_print("\t-xegs            Emulate Atari XEGS");
