@@ -47,6 +47,9 @@ void CPU_StateSave(UBYTE SaveVerbose);
 void CPU_StateRead(UBYTE SaveVerbose, UBYTE StateVersion);
 void CPU_NMI(void);
 void CPU_CSIM_SetIRQ(int active);
+#ifdef CSIM_BUS_CYCLE
+void CPU_CSIM_TraceDumpN(const char *why, unsigned int max);   /* the last instructions, printed */
+#endif
 void CPU_GO(int limit);
 #define CPU_GenerateIRQ() (CPU_IRQ = 1)
 

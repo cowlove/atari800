@@ -514,14 +514,20 @@ static void CPU_CSIM_Tick(unsigned int cpuCycles, unsigned int min)
 typedef struct { UWORD pc; UBYTE op, a, x, y, s; } csim_trace_t;
 static csim_trace_t csim_trace[CSIM_TRACE_LEN];
 static unsigned int csim_trace_n = 0;
-static void CPU_CSIM_TraceDump(UBYTE insn)
+void CPU_CSIM_TraceDumpN(const char *why, unsigned int max)
 {
-	unsigned int i, n = csim_trace_n < 64 ? csim_trace_n : 64;
-	printf("csim: CIM $%02X: the last %u instructions (PC, opcode as fetched, registers before it):\n", insn, n);
+	unsigned int i, n = csim_trace_n < max ? csim_trace_n : max;
+	printf("csim: %s: the last %u instructions (PC, opcode as fetched, registers before it):\n", why, n);
 	for (i = csim_trace_n - n; i != csim_trace_n; i++) {
 		const csim_trace_t *t = &csim_trace[i & (CSIM_TRACE_LEN - 1)];
 		printf("csim:   %04X  %02X  A=%02X X=%02X Y=%02X S=%02X\n", t->pc, t->op, t->a, t->x, t->y, t->s);
 	}
+}
+static void CPU_CSIM_TraceDump(UBYTE insn)
+{
+	char why[16];
+	snprintf(why, sizeof(why), "CIM $%02X", insn);
+	CPU_CSIM_TraceDumpN(why, 64);
 }
 #endif
 
