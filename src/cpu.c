@@ -506,6 +506,25 @@ static void CPU_CSIM_Tick(unsigned int cpuCycles, unsigned int min)
 	}
 }
 
+#ifdef CSIM_BUS_CYCLE
+/* The last CSIM_TRACE_LEN instructions (bus-cycle mode): PC, the opcode
+   as fetched (the board's when it served it) and the registers before
+   each, printed at a CIM to show how the 6502 got there. */
+#define CSIM_TRACE_LEN 128
+typedef struct { UWORD pc; UBYTE op, a, x, y, s; } csim_trace_t;
+static csim_trace_t csim_trace[CSIM_TRACE_LEN];
+static unsigned int csim_trace_n = 0;
+static void CPU_CSIM_TraceDump(UBYTE insn)
+{
+	unsigned int i, n = csim_trace_n < 64 ? csim_trace_n : 64;
+	printf("csim: CIM $%02X: the last %u instructions (PC, opcode as fetched, registers before it):\n", insn, n);
+	for (i = csim_trace_n - n; i != csim_trace_n; i++) {
+		const csim_trace_t *t = &csim_trace[i & (CSIM_TRACE_LEN - 1)];
+		printf("csim:   %04X  %02X  A=%02X X=%02X Y=%02X S=%02X\n", t->pc, t->op, t->a, t->x, t->y, t->s);
+	}
+}
+#endif
+
 void CPU_CSIM_SetIRQ(int active)
 {
 	CPU_CSIM_IRQ = active ? TRUE : FALSE;
@@ -850,7 +869,16 @@ void CPU_GO(int limit)
 		MEMORY_mem[0x10000] = MEMORY_mem[0];
 #endif
 
+#ifdef CSIM_BUS_CYCLE
+		{	/* the instruction trace (CPU_CSIM_TraceDump(), at a CIM) */
+			csim_trace_t *t = &csim_trace[csim_trace_n++ & (CSIM_TRACE_LEN - 1)];
+			t->pc = GET_PC(); t->a = A; t->x = X; t->y = Y; t->s = S;
+		}
+#endif
 		insn = GET_CODE_BYTE();
+#ifdef CSIM_BUS_CYCLE
+		csim_trace[(csim_trace_n - 1) & (CSIM_TRACE_LEN - 1)].op = insn;   /* as fetched (the board's, if it served it) */
+#endif
 
 #ifdef MONITOR_BREAKPOINTS
 #ifdef MONITOR_BREAK
@@ -2508,6 +2536,9 @@ void CPU_GO(int limit)
 		UI_Run();
 #else
 		CPU_cim_encountered = TRUE;
+#ifdef CSIM_BUS_CYCLE
+		CPU_CSIM_TraceDump(insn);
+#endif
 #ifdef LIBATARI800
 #ifdef HAVE_SETJMP
 		longjmp(libatari800_cpu_crash, LIBATARI800_CPU_CRASH);
