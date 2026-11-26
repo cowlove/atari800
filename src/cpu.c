@@ -759,6 +759,23 @@ void CPU_GO(int limit)
 			CPU_CSIM_Tick(1, 1);
 			continue;
 		}
+		/* The board's IRQ line, polled at every instruction boundary as the
+		   6502 does. atari800 checks IRQs only at this loop's entry (and
+		   only while ANTIC_xpos < ANTIC_xpos_limit) and after CLI, PLP and
+		   RTI, so a held IRQ let whole runs of instructions through with I
+		   clear (a stuck deferred VBI then finished and unwound: wrong for
+		   a 6502). Its own sources (POKEY) keep atari800's timing. */
+		if (CPU_CSIM_IRQ && !(CPU_regP & CPU_I_FLAG)) {
+			CPUCHECKIRQ_SAVE_S;
+			PHPC;
+			PHPB0;
+			CPU_SetI;
+			SET_PC(MEMORY_dGetWordAligned(0xfffe));
+			CPUCHECKIRQ_RESTORE_S;
+			ANTIC_xpos += 7;
+			INC_RET_NESTING;
+			continue;
+		}
 #endif
 #ifdef NEW_CYCLE_EXACT
 		if (service_pokey_irq) {
