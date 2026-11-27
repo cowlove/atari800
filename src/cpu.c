@@ -514,6 +514,7 @@ static void CPU_CSIM_Tick(unsigned int cpuCycles, unsigned int min)
 typedef struct { UWORD pc; UBYTE op, a, x, y, s; } csim_trace_t;
 static csim_trace_t csim_trace[CSIM_TRACE_LEN];
 static unsigned int csim_trace_n = 0;
+static int csim_trace_at_pc = -2;   /* CSIM_TRACE_AT_PC: -2 not read yet, -1 off */
 void CPU_CSIM_TraceDumpN(const char *why, unsigned int max)
 {
 	unsigned int i, n = csim_trace_n < max ? csim_trace_n : max;
@@ -879,6 +880,18 @@ void CPU_GO(int limit)
 		{	/* the instruction trace (CPU_CSIM_TraceDump(), at a CIM) */
 			csim_trace_t *t = &csim_trace[csim_trace_n++ & (CSIM_TRACE_LEN - 1)];
 			t->pc = GET_PC(); t->a = A; t->x = X; t->y = Y; t->s = S;
+			/* CSIM_TRACE_AT_PC=<hex>: the trace, the first time the 6502 is
+			   about to fetch there (e.g. 0 for a BRK storm at $0000). */
+			if (csim_trace_at_pc == -2) {
+				const char *e = getenv("CSIM_TRACE_AT_PC");
+				csim_trace_at_pc = e ? (int)strtol(e, NULL, 16) : -1;
+			}
+			if (csim_trace_at_pc >= 0 && t->pc == csim_trace_at_pc) {
+				char why[40];
+				snprintf(why, sizeof(why), "PC reached $%04X", csim_trace_at_pc);
+				csim_trace_at_pc = -1;
+				CPU_CSIM_TraceDumpN(why, CSIM_TRACE_LEN);
+			}
 		}
 #endif
 		insn = GET_CODE_BYTE();
